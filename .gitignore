@@ -1,0 +1,30 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+artifacts/
+
+# Rider / VS Code
+.idea/
+.vscode/
+*.swp
+
+# Logs
+logs/
+*.log
+
+# Uploaded content
+uploads/
+
+# OS
+.DS_Store
+
+# Coverage
+coverage/
+*.coverage
+
+# Test results / crash dumps
+TestResults/
+*.dmp
