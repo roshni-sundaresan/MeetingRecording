@@ -152,5 +152,67 @@ s, r = call("POST", "/api/upload/start", {"userId": "22222222-2222-2222-2222-222
                                             "fileName": "rl.mp4", "type": 1, "totalChunks": 1, "sourceLanguageCode": "en"}, token=token)
 check("rate-limit endpoint still served", s in (201, 429))
 
+# 8. Batch fetch + playlist + streaming (new endpoints)
+print("== 8. Batch fetch / playlist / stream ==")
+import urllib.request as _ur
+
+s, r = call("GET", "/api/recordings?pageSize=100", token=token)
+items = r["data"]["items"]
+with_file = [i for i in items if i.get("filePath")]
+check("found recordings with real files for stream test", len(with_file) >= 2, f"got {len(with_file)}")
+rec_a, rec_b = with_file[0], with_file[1]
+
+# 8a. Batch fetch — GET (order preserved)
+s, r = call("GET", f"/api/recordings/batch?ids={rec_b['id']}&ids={rec_a['id']}", token=token)
+check("GET batch preserves order", s == 200 and [i["id"] for i in r["data"]] == [rec_b["id"], rec_a["id"]],
+      json.dumps(r)[:200])
+
+# 8b. Batch fetch — POST (JSON body)
+s, r = call("POST", "/api/recordings/batch", {"ids": [rec_a["id"], rec_b["id"]]}, token=token)
+check("POST batch returns 2 recordings", s == 200 and len(r["data"]) == 2)
+
+# 8c. Batch with a bogus (non-empty) id -> skipped silently
+s, r = call("POST", "/api/recordings/batch", {"ids": [rec_a["id"], "12345678-1234-1234-1234-1234567890ab"]}, token=token)
+check("POST batch skips unknown id", s == 200 and len(r["data"]) == 1, json.dumps(r)[:150])
+
+# 8d. Empty batch -> 400 validation
+s, r = call("POST", "/api/recordings/batch", {"ids": []}, token=token)
+check("empty batch -> 400", s == 400 and not r["success"])
+
+# 8e. Playlist
+s, r = call("POST", "/api/recordings/play", {"ids": [rec_a["id"], rec_b["id"]]}, token=token)
+pl = r["data"]
+check("playlist built with stream urls", s == 200 and len(pl) == 2
+      and pl[0]["streamUrl"].endswith(f"/api/recordings/{rec_a['id']}/stream")
+      and pl[0]["contentType"] == "video/mp4", json.dumps(pl)[:250])
+
+# 8f. Full stream (no Range) -> 200 + correct bytes
+full_size = 3000  # chunks were 3 x 1000 bytes
+req = _ur.Request(f"http://localhost:5080/api/recordings/{rec_a['id']}/stream",
+                  headers={"Authorization": f"Bearer {token}"})
+with _ur.urlopen(req, timeout=30) as resp:
+    body = resp.read()
+    ct = resp.headers.get("Content-Type")
+    ar = resp.headers.get("Accept-Ranges")
+check("stream 200 with full body", resp.status == 200 and len(body) == full_size
+      and ct == "video/mp4" and ar == "bytes", f"status={resp.status} len={len(body)} ct={ct} ar={ar}")
+
+# 8g. Range request -> 206 Partial Content
+req = _ur.Request(f"http://localhost:5080/api/recordings/{rec_a['id']}/stream",
+                  headers={"Authorization": f"Bearer {token}", "Range": "bytes=0-99"})
+with _ur.urlopen(req, timeout=30) as resp:
+    body = resp.read()
+    cr = resp.headers.get("Content-Range")
+check("stream range -> 206 with 100 bytes", resp.status == 206 and len(body) == 100
+      and cr == f"bytes 0-99/{full_size}", f"status={resp.status} len={len(body)} cr={cr}")
+
+# 8h. Stream a recording with no file -> 404 (seeded recordings have no file)
+without_file = [i for i in items if not i.get("filePath")]
+if without_file:
+    s, r = call("GET", f"/api/recordings/{without_file[0]['id']}/stream", token=token)
+    check("stream without file -> 404", s == 404, json.dumps(r)[:150])
+else:
+    check("stream without file -> 404", True, "(skipped: every recording has a file)")
+
 print(f"\nRESULT: {ok} passed, {fail} failed")
 sys.exit(1 if fail else 0)

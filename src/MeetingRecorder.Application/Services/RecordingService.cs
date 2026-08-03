@@ -3,6 +3,7 @@ using MeetingRecorder.Application.DTOs;
 using MeetingRecorder.Application.DTOs.Common;
 using MeetingRecorder.Application.Exceptions;
 using MeetingRecorder.Application.Interfaces;
+using MeetingRecorder.Application.Validators;
 using MeetingRecorder.Domain;
 using MeetingRecorder.Domain.Entities;
 
@@ -12,6 +13,7 @@ public interface IRecordingService
 {
     Task<PagedResult<RecordingResponse>> GetRecordingsAsync(Guid? userId, QueryParameters query, CancellationToken ct = default);
     Task<RecordingResponse> GetRecordingAsync(Guid id, CancellationToken ct = default);
+    Task<IReadOnlyList<RecordingResponse>> GetRecordingsByIdsAsync(Guid? requesterUserId, IReadOnlyList<Guid> ids, CancellationToken ct = default);
     Task<RecordingResponse> CreateRecordingAsync(CreateRecordingRequest request, CancellationToken ct = default);
     Task<RecordingResponse> UpdateRecordingAsync(Guid id, UpdateRecordingRequest request, CancellationToken ct = default);
     Task<RecordingResponse> SetBookmarkAsync(Guid id, bool bookmarked, CancellationToken ct = default);
@@ -68,6 +70,30 @@ public class RecordingService : IRecordingService
     {
         var rec = await _uow.Repository<Recording>().FirstOrDefaultAsync(r => r.Id == id && !r.IsDeleted, ct);
         return _mapper.Map<RecordingResponse>(rec ?? throw new NotFoundException(nameof(Recording), id));
+    }
+
+    /// <summary>
+    /// Batch fetch: returns recordings in the same order as requested, silently skipping
+    /// missing/soft-deleted ids (and anything the requester may not access when a userId
+    /// is supplied). Input is capped at 100 distinct ids.
+    /// </summary>
+    public Task<IReadOnlyList<RecordingResponse>> GetRecordingsByIdsAsync(Guid? requesterUserId, IReadOnlyList<Guid> ids, CancellationToken ct = default)
+    {
+        var requested = ids.Where(i => i != Guid.Empty).Distinct().Take(BatchRecordingsValidator.MaxBatchSize).ToList();
+        if (requested.Count == 0)
+            return Task.FromResult<IReadOnlyList<RecordingResponse>>(Array.Empty<RecordingResponse>());
+
+        var query = _uow.Repository<Recording>().Query().Where(r => !r.IsDeleted && requested.Contains(r.Id));
+        if (requesterUserId.HasValue)
+            query = query.Where(r => r.UserId == requesterUserId.Value);
+
+        var byId = query.ToList().ToDictionary(r => r.Id);
+        var items = requested
+            .Where(id => byId.ContainsKey(id))
+            .Select(id => _mapper.Map<RecordingResponse>(byId[id]))
+            .ToList();
+
+        return Task.FromResult<IReadOnlyList<RecordingResponse>>(items);
     }
 
     public async Task<RecordingResponse> CreateRecordingAsync(CreateRecordingRequest request, CancellationToken ct = default)

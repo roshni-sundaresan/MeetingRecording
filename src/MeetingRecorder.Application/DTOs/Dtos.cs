@@ -29,6 +29,13 @@ public record UpdateRecordingRequest(string? Title, RecordingType? Type, TimeSpa
 
 public record BookmarkRequest(bool Bookmarked);
 
+// ---------- Batch fetch & playback ----------
+public record BatchRecordingsRequest(IReadOnlyList<Guid> Ids);
+
+public record RecordingPlaylistItem(Guid Id, string Title, RecordingType Type, TimeSpan Duration,
+    string? StreamUrl, string? ContentType, string? SourceLanguageCode,
+    TranscriptionStatus TranscriptionStatus);
+
 public record RecordingResponse(Guid Id, Guid UserId, string Title, RecordingType Type, DateTime CreatedAt,
     TimeSpan Duration, string? Summary, string? Transcript, string? Actions, string? Notes,
     bool IsRecording, bool Bookmarked, string? FilePath, string? SourceLanguageCode,

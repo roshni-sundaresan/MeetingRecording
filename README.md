@@ -126,7 +126,11 @@ All endpoints return the standard envelope:
 | Method | Route | Description |
 |---|---|---|
 | GET | `/api/recordings?userId=&page=&pageSize=&search=&sortBy=&sortOrder=` | Paged list (users see only their own) |
+| GET | `/api/recordings/batch?ids=<id>&ids=<id>…` | Batch fetch by ids (≤100, order preserved, missing/unauthorized skipped) |
+| POST | `/api/recordings/batch` | Batch fetch, JSON body `{ "ids": […] }` |
+| POST | `/api/recordings/play` | Build playlist `{ "ids": […] }` → ordered items with `streamUrl`, `contentType`, `duration` |
 | GET | `/api/recordings/{id}` | Single recording |
+| GET | `/api/recordings/{id}/stream` | **Stream the file** — HTTP Range support (206/416) so players can seek/scrub |
 | POST | `/api/recordings` | Create |
 | PUT | `/api/recordings/{id}` | Update |
 | PATCH | `/api/recordings/{id}/bookmark` | `{ "bookmarked": true }` |

@@ -105,4 +105,53 @@ public class RecordingServiceTests
 
         result.Bookmarked.Should().BeTrue();
     }
+
+    [Fact]
+    public async Task GetByIds_ReturnsInRequestedOrderAndSkipsMissing()
+    {
+        var a = NewRecording("A", Guid.NewGuid());
+        var b = NewRecording("B", Guid.NewGuid());
+        var c = NewRecording("C", Guid.NewGuid());
+        var missing = Guid.NewGuid();
+        _recRepo.Setup(r => r.Query()).Returns(new[] { a, b, c }.AsQueryable());
+
+        var result = await CreateSut().GetRecordingsByIdsAsync(null, new[] { c.Id, missing, a.Id });
+
+        result.Select(r => r.Id).Should().Equal(c.Id, a.Id);   // order preserved, missing skipped
+    }
+
+    [Fact]
+    public async Task GetByIds_WithRequester_FiltersToOwnedRecordings()
+    {
+        var owner = Guid.NewGuid();
+        var mine = NewRecording("Mine", owner);
+        var theirs = NewRecording("Theirs", Guid.NewGuid());
+        _recRepo.Setup(r => r.Query()).Returns(new[] { mine, theirs }.AsQueryable());
+
+        var result = await CreateSut().GetRecordingsByIdsAsync(owner, new[] { mine.Id, theirs.Id });
+
+        result.Should().ContainSingle().Which.Id.Should().Be(mine.Id);
+    }
+
+    [Fact]
+    public async Task GetByIds_WithEmptyOrDuplicateIds_IsSafe()
+    {
+        _recRepo.Setup(r => r.Query()).Returns(Array.Empty<Recording>().AsQueryable());
+
+        var empty = await CreateSut().GetRecordingsByIdsAsync(null, Array.Empty<Guid>());
+        empty.Should().BeEmpty();
+
+        var dup = await CreateSut().GetRecordingsByIdsAsync(null, new[] { Sample.Id, Sample.Id, Sample.Id });
+        dup.Should().BeEmpty();   // duplicates deduped; no crash
+    }
+
+    private static Recording NewRecording(string title, Guid userId) => new()
+    {
+        Id = Guid.NewGuid(),
+        UserId = userId,
+        Title = title,
+        Type = RecordingType.Audio,
+        CreatedAt = DateTime.UtcNow,
+        Duration = TimeSpan.FromMinutes(5)
+    };
 }

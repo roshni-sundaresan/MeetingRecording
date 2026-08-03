@@ -36,3 +36,20 @@ public class UpdateRecordingValidator : AbstractValidator<DTOs.UpdateRecordingRe
         RuleFor(x => x.Duration).GreaterThanOrEqualTo(TimeSpan.Zero).When(x => x.Duration.HasValue);
     }
 }
+
+public class BatchRecordingsValidator : AbstractValidator<DTOs.BatchRecordingsRequest>
+{
+    public const int MaxBatchSize = 100;
+
+    public BatchRecordingsValidator()
+    {
+        RuleFor(x => x.Ids)
+            .NotNull()
+            .WithMessage("At least one recording id is required.")
+            .NotEmpty()
+            .WithMessage("At least one recording id is required.")
+            .Must(ids => ids.Count <= MaxBatchSize)
+            .WithMessage($"Maximum {MaxBatchSize} ids per batch.");
+        RuleForEach(x => x.Ids).NotEmpty();
+    }
+}

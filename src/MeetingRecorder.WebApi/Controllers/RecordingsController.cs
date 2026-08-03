@@ -1,20 +1,26 @@
 using MeetingRecorder.Application.DTOs;
 using MeetingRecorder.Application.DTOs.Common;
+using MeetingRecorder.Application.Exceptions;
 using MeetingRecorder.Application.Services;
 using MeetingRecorder.WebApi.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.StaticFiles;
 
 namespace MeetingRecorder.WebApi.Controllers;
 
 [Authorize]
 public class RecordingsController : ApiControllerBase
 {
-    private readonly IRecordingService _recordingService;
+    private static readonly FileExtensionContentTypeProvider ContentTypes = new();
 
-    public RecordingsController(IRecordingService recordingService)
+    private readonly IRecordingService _recordingService;
+    private readonly IWebHostEnvironment _env;
+
+    public RecordingsController(IRecordingService recordingService, IWebHostEnvironment env)
     {
         _recordingService = recordingService;
+        _env = env;
     }
 
     /// <summary>
@@ -33,6 +39,78 @@ public class RecordingsController : ApiControllerBase
             Page = page, PageSize = pageSize, Search = search, SortBy = sortBy, SortOrder = sortOrder
         }, ct);
         return Envelope(result);
+    }
+
+    /// <summary>Batch fetch by ids — GET variant. Order preserved; missing/unauthorized ids skipped.</summary>
+    [HttpGet("batch")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<RecordingResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<RecordingResponse>>>> GetBatch(
+        CancellationToken ct, [FromQuery] List<Guid> ids)
+    {
+        if (ids.Count == 0)
+            return BadRequest(ApiResponseFactory.Fail("At least one recording id is required.", 400));
+
+        var effectiveUserId = CurrentUser.IsAdmin ? null : CurrentUser.UserId;
+        return Envelope(await _recordingService.GetRecordingsByIdsAsync(effectiveUserId, ids, ct));
+    }
+
+    /// <summary>Batch fetch by ids — POST variant (JSON body, avoids URL length limits).</summary>
+    [HttpPost("batch")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<RecordingResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<RecordingResponse>>>> PostBatch(
+        [FromBody] BatchRecordingsRequest request, CancellationToken ct)
+    {
+        await ValidateAsync(request, ct);
+        var effectiveUserId = CurrentUser.IsAdmin ? null : CurrentUser.UserId;
+        return Envelope(await _recordingService.GetRecordingsByIdsAsync(effectiveUserId, request.Ids, ct));
+    }
+
+    /// <summary>
+    /// Build a playable playlist from recording ids (order preserved). Each item carries
+    /// the metadata plus its <c>streamUrl</c> — the client plays items sequentially.
+    /// </summary>
+    [HttpPost("play")]
+    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<RecordingPlaylistItem>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<RecordingPlaylistItem>>>> Play(
+        [FromBody] BatchRecordingsRequest request, CancellationToken ct)
+    {
+        await ValidateAsync(request, ct);
+        var effectiveUserId = CurrentUser.IsAdmin ? null : CurrentUser.UserId;
+        var recordings = await _recordingService.GetRecordingsByIdsAsync(effectiveUserId, request.Ids, ct);
+
+        var baseUrl = $"{Request.Scheme}://{Request.Host}";
+        IReadOnlyList<RecordingPlaylistItem> playlist = recordings.Select(r => new RecordingPlaylistItem(
+            r.Id, r.Title, r.Type, r.Duration,
+            $"{baseUrl}/api/recordings/{r.Id}/stream",
+            ContentTypeFor(r.FilePath),
+            r.SourceLanguageCode,
+            r.TranscriptionStatus)).ToList();
+
+        return Envelope(playlist);
+    }
+
+    /// <summary>
+    /// Stream a recording file with HTTP Range support (206 Partial Content) so audio/video
+    /// players can seek and scrub. Owner or admin.
+    /// </summary>
+    [HttpGet("{id:guid}/stream")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status206PartialContent)]
+    [ProducesResponseType(StatusCodes.Status416RangeNotSatisfiable)]
+    public async Task<IActionResult> Stream(Guid id, CancellationToken ct)
+    {
+        var rec = await _recordingService.GetRecordingAsync(id, ct);
+        AccessPolicies.EnsureCanActOnUser(CurrentUser, rec.UserId);
+
+        if (string.IsNullOrEmpty(rec.FilePath))
+            throw new NotFoundException("Recording file", id);
+
+        var fullPath = Path.GetFullPath(rec.FilePath, _env.ContentRootPath);
+        if (!System.IO.File.Exists(fullPath))
+            throw new NotFoundException("Recording file", id);
+
+        var contentType = ContentTypeFor(rec.FilePath) ?? "application/octet-stream";
+        return PhysicalFile(fullPath, contentType, enableRangeProcessing: true);
     }
 
     /// <summary>Get a single recording. Owner or admin.</summary>
@@ -83,4 +161,8 @@ public class RecordingsController : ApiControllerBase
         await _recordingService.DeleteRecordingAsync(id, ct);
         return Ok("Recording deleted.");
     }
+
+    private static string? ContentTypeFor(string? path)
+        => !string.IsNullOrEmpty(path) && ContentTypes.TryGetContentType(path, out var contentType)
+            ? contentType : null;
 }
