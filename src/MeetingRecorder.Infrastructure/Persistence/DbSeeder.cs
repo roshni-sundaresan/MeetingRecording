@@ -95,7 +95,7 @@ public static class DbSeeder
                 Bookmarked = false,
                 FilePath = null,
                 SourceLanguageCode = "en",
-                TranscriptionStatus = TranscriptionStatus.Pending
+                TranscriptionStatus = TranscriptionStatus.None
             });
 
         await context.SaveChangesAsync(ct);

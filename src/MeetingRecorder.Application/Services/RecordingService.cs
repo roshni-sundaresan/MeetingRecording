@@ -3,6 +3,7 @@ using MeetingRecorder.Application.DTOs;
 using MeetingRecorder.Application.DTOs.Common;
 using MeetingRecorder.Application.Exceptions;
 using MeetingRecorder.Application.Interfaces;
+using MeetingRecorder.Application.Mapping;
 using MeetingRecorder.Application.Validators;
 using MeetingRecorder.Domain;
 using MeetingRecorder.Domain.Entities;
@@ -108,16 +109,16 @@ public class RecordingService : IRecordingService
             Title = request.Title.Trim(),
             Type = request.Type,
             CreatedAt = request.CreatedAt ?? DateTime.UtcNow,
-            Duration = request.Duration ?? TimeSpan.Zero,
+            Duration = request.Duration ?? (request.DurationSeconds is int ds ? TimeSpan.FromSeconds(ds) : TimeSpan.Zero),
             Summary = request.Summary,
-            Transcript = request.Transcript,
-            Actions = request.Actions,
-            Notes = request.Notes,
+            Transcript = StructuredContent.ToJson(request.Transcript),
+            Actions = StructuredContent.ToJson(request.Actions),
+            Notes = StructuredContent.ToJson(request.Notes),
             IsRecording = request.IsRecording,
             Bookmarked = request.Bookmarked,
             FilePath = request.FilePath,
             SourceLanguageCode = request.SourceLanguageCode,
-            TranscriptionStatus = request.TranscriptionStatus ?? TranscriptionStatus.Pending
+            TranscriptionStatus = request.TranscriptionStatus ?? TranscriptionStatus.None
         };
 
         _uow.Repository<Recording>().Add(rec);
@@ -134,9 +135,9 @@ public class RecordingService : IRecordingService
         if (request.Type.HasValue) rec.Type = request.Type.Value;
         if (request.Duration.HasValue) rec.Duration = request.Duration.Value;
         if (request.Summary is not null) rec.Summary = request.Summary;
-        if (request.Transcript is not null) rec.Transcript = request.Transcript;
-        if (request.Actions is not null) rec.Actions = request.Actions;
-        if (request.Notes is not null) rec.Notes = request.Notes;
+        if (request.Transcript is not null) rec.Transcript = StructuredContent.ToJson(request.Transcript);
+        if (request.Actions is not null) rec.Actions = StructuredContent.ToJson(request.Actions);
+        if (request.Notes is not null) rec.Notes = StructuredContent.ToJson(request.Notes);
         if (request.IsRecording.HasValue) rec.IsRecording = request.IsRecording.Value;
         if (request.Bookmarked.HasValue) rec.Bookmarked = request.Bookmarked.Value;
         if (request.FilePath is not null) rec.FilePath = request.FilePath;

@@ -1,9 +1,14 @@
 namespace MeetingRecorder.Domain;
 
+/// <summary>
+/// Mirrors the Flutter app's TranscriptionStatus enum names
+/// (none / processing / completed / failed) so string-based JSON
+/// round-trips without client-side mapping.
+/// </summary>
 public enum TranscriptionStatus
 {
-    Pending = 1,
-    InProgress = 2,
-    Completed = 3,
-    Failed = 4
+    None = 0,
+    Processing = 1,
+    Completed = 2,
+    Failed = 3
 }

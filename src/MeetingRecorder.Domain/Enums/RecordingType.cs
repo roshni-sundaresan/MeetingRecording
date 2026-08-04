@@ -6,5 +6,7 @@ public enum RecordingType
     Video = 2,
     Screen = 3,
     Meeting = 4,
-    Other = 5
+    Other = 5,
+    Interview = 6,
+    VoiceNote = 7
 }

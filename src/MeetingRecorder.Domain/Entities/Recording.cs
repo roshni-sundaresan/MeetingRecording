@@ -17,7 +17,7 @@ public class Recording : BaseEntity
     public bool Bookmarked { get; set; }
     public string? FilePath { get; set; }
     public string? SourceLanguageCode { get; set; }
-    public TranscriptionStatus TranscriptionStatus { get; set; } = TranscriptionStatus.Pending;
+    public TranscriptionStatus TranscriptionStatus { get; set; } = TranscriptionStatus.None;
 
     public User? User { get; set; }
 }

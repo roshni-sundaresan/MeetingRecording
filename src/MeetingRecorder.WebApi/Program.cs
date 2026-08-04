@@ -35,12 +35,13 @@ try
         options.Limits.MaxRequestBodySize = 2L * 1024 * 1024 * 1024;   // 2 GB
     });
 
-    // ---------- Controllers + JSON ----------
+    // ---------- Controllers + JSON (snake_case + string enums to match the Flutter app) ----------
     builder.Services.AddControllers()
         .AddJsonOptions(options =>
         {
-            options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
-            options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+            options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.SnakeCaseLower;
+            options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter(
+                System.Text.Json.JsonNamingPolicy.SnakeCaseLower));
         });
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddHttpContextAccessor();
@@ -114,25 +115,28 @@ try
             }));
     });
 
-    // ---------- JWT authentication ----------
+    // ---------- Authentication: hybrid (native JWT + optional Firebase ID tokens) ----------
     var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
         ?? throw new InvalidOperationException("Jwt configuration is missing.");
-    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-        .AddJwtBearer(options =>
+    var jwtValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidIssuer = jwtOptions.Issuer,
+        ValidateAudience = true,
+        ValidAudience = jwtOptions.Audience,
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.Key)),
+        ValidateLifetime = true,
+        ClockSkew = TimeSpan.FromMinutes(1),
+        RoleClaimType = ClaimTypes.Role,
+        NameClaimType = ClaimTypes.Name
+    };
+    builder.Services.AddAuthentication("Hybrid")
+        .AddScheme<HybridAuthOptions, HybridAuthenticationHandler>("Hybrid",
+            options => options.TokenValidationParameters = jwtValidationParameters)
+        .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
         {
-            options.TokenValidationParameters = new TokenValidationParameters
-            {
-                ValidateIssuer = true,
-                ValidIssuer = jwtOptions.Issuer,
-                ValidateAudience = true,
-                ValidAudience = jwtOptions.Audience,
-                ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.Key)),
-                ValidateLifetime = true,
-                ClockSkew = TimeSpan.FromMinutes(1),
-                RoleClaimType = ClaimTypes.Role,
-                NameClaimType = ClaimTypes.Name
-            };
+            options.TokenValidationParameters = jwtValidationParameters;
         });
     builder.Services.AddAuthorization();
 

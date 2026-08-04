@@ -17,9 +17,13 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.ProfilePhotoUrl).HasMaxLength(1000);
         builder.Property(u => u.PasswordHash).IsRequired().HasMaxLength(256);
         builder.Property(u => u.Role).IsRequired().HasMaxLength(20);
+        builder.Property(u => u.FirebaseUid).HasMaxLength(128);
 
         builder.HasIndex(u => u.Email).IsUnique()
             .HasFilter("[IsDeleted] = 0");   // unique among active users (SQL Server)
+
+        builder.HasIndex(u => u.FirebaseUid).IsUnique()
+            .HasFilter("[IsDeleted] = 0 AND [FirebaseUid] IS NOT NULL");
 
         builder.HasQueryFilter(u => !u.IsDeleted);
         builder.HasMany(u => u.Recordings).WithOne(r => r.User).HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Restrict);

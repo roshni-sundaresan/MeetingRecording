@@ -5,8 +5,14 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:5080" },
-    { "key": "token", "value": "" }
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5080"
+    },
+    {
+      "key": "token",
+      "value": ""
+    }
   ],
   "item": [
     {
@@ -16,9 +22,27 @@
           "name": "Login",
           "request": {
             "method": "POST",
-            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] },
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@meetingrecorder.dev\",\n  \"password\": \"Admin@123\"\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@meetingrecorder.dev\",\n  \"password\": \"Admin@123\"\n}"
+            },
             "description": "Seed admin: admin@meetingrecorder.dev / Admin@123. Seed user: demo@meetingrecorder.dev / Demo@123."
           },
           "event": [
@@ -38,9 +62,27 @@
           "name": "Register",
           "request": {
             "method": "POST",
-            "url": { "raw": "{{baseUrl}}/api/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "auth", "register"] },
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\n  \"email\": \"new.user@example.com\",\n  \"name\": \"New User\",\n  \"mobile\": \"+91 98765 43210\",\n  \"password\": \"Str0ngPass!\"\n}" }
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"new.user@example.com\",\n  \"name\": \"New User\",\n  \"mobile\": \"+91 98765 43210\",\n  \"password\": \"Str0ngPass!\"\n}"
+            }
           }
         }
       ]
@@ -52,33 +94,99 @@
           "name": "List users (admin)",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{baseUrl}}/api/users?page=1&pageSize=10&search=&sortBy=name&sortOrder=asc", "host": ["{{baseUrl}}"], "path": ["api", "users"] },
-            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+            "url": {
+              "raw": "{{baseUrl}}/api/users?page=1&pageSize=10&search=&sortBy=name&sortOrder=asc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
           }
         },
         {
           "name": "Get user",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{baseUrl}}/api/users/22222222-2222-2222-2222-222222222222", "host": ["{{baseUrl}}"], "path": ["api", "users", ":id"] },
-            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+            "url": {
+              "raw": "{{baseUrl}}/api/users/22222222-2222-2222-2222-222222222222",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                ":id"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
           }
         },
         {
           "name": "Update user",
           "request": {
             "method": "PUT",
-            "url": { "raw": "{{baseUrl}}/api/users/22222222-2222-2222-2222-222222222222", "host": ["{{baseUrl}}"], "path": ["api", "users", ":id"] },
-            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{token}}" }],
-            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Demo User Updated\",\n  \"mobile\": \"+91 90000 00002\"\n}" }
+            "url": {
+              "raw": "{{baseUrl}}/api/users/22222222-2222-2222-2222-222222222222",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                ":id"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Demo User Updated\",\n  \"mobile\": \"+91 90000 00002\"\n}"
+            }
           }
         },
         {
           "name": "Delete user (soft)",
           "request": {
             "method": "DELETE",
-            "url": { "raw": "{{baseUrl}}/api/users/22222222-2222-2222-2222-222222222222", "host": ["{{baseUrl}}"], "path": ["api", "users", ":id"] },
-            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+            "url": {
+              "raw": "{{baseUrl}}/api/users/22222222-2222-2222-2222-222222222222",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                ":id"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
           }
         }
       ]
@@ -90,51 +198,161 @@
           "name": "List recordings",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{baseUrl}}/api/recordings?page=1&pageSize=10&search=&sortBy=createdAt&sortOrder=desc", "host": ["{{baseUrl}}"], "path": ["api", "recordings"] },
-            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+            "url": {
+              "raw": "{{baseUrl}}/api/recordings?page=1&pageSize=10&search=&sortBy=createdAt&sortOrder=desc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "recordings"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
           }
         },
         {
           "name": "Get recording",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{baseUrl}}/api/recordings/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "host": ["{{baseUrl}}"], "path": ["api", "recordings", ":id"] },
-            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+            "url": {
+              "raw": "{{baseUrl}}/api/recordings/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "recordings",
+                ":id"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
           }
         },
         {
           "name": "Create recording",
           "request": {
             "method": "POST",
-            "url": { "raw": "{{baseUrl}}/api/recordings", "host": ["{{baseUrl}}"], "path": ["api", "recordings"] },
-            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{token}}" }],
-            "body": { "mode": "raw", "raw": "{\n  \"title\": \"API Design Review\",\n  \"type\": 4,\n  \"duration\": \"00:35:00\",\n  \"summary\": \"Reviewed the OpenAPI contract.\",\n  \"sourceLanguageCode\": \"en\",\n  \"isRecording\": false,\n  \"bookmarked\": false\n}" }
+            "url": {
+              "raw": "{{baseUrl}}/api/recordings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "recordings"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"22222222-2222-2222-2222-222222222222\",\n  \"title\": \"Sprint Planning\",\n  \"type\": \"meeting\",\n  \"duration_seconds\": 1800,\n  \"summary\": \"Plan the sprint\",\n  \"transcript\": [{\"speaker\": \"A\", \"text\": \"Let us start\", \"timestamp_seconds\": 0}],\n  \"actions\": [{\"text\": \"Send minutes\", \"done\": false}],\n  \"notes\": [{\"id\": \"n1\", \"start_seconds\": 0, \"end_seconds\": 30, \"text\": \"Decide date\", \"clip_path\": null}],\n  \"is_recording\": false,\n  \"bookmarked\": true,\n  \"source_language_code\": \"en\",\n  \"transcription_status\": \"none\"\n}"
+            }
           }
         },
         {
           "name": "Update recording",
           "request": {
             "method": "PUT",
-            "url": { "raw": "{{baseUrl}}/api/recordings/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "host": ["{{baseUrl}}"], "path": ["api", "recordings", ":id"] },
-            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{token}}" }],
-            "body": { "mode": "raw", "raw": "{\n  \"notes\": \"Share the deck with the team.\"\n}" }
+            "url": {
+              "raw": "{{baseUrl}}/api/recordings/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "recordings",
+                ":id"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"Share the deck with the team.\"\n}"
+            }
           }
         },
         {
           "name": "Bookmark recording",
           "request": {
             "method": "PATCH",
-            "url": { "raw": "{{baseUrl}}/api/recordings/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/bookmark", "host": ["{{baseUrl}}"], "path": ["api", "recordings", ":id", "bookmark"] },
-            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{token}}" }],
-            "body": { "mode": "raw", "raw": "{\n  \"bookmarked\": true\n}" }
+            "url": {
+              "raw": "{{baseUrl}}/api/recordings/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/bookmark",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "recordings",
+                ":id",
+                "bookmark"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookmarked\": true\n}"
+            }
           }
         },
         {
           "name": "Batch fetch (GET)",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{baseUrl}}/api/recordings/batch?ids=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa&ids=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "host": ["{{baseUrl}}"], "path": ["api", "recordings", "batch"] },
-            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/recordings/batch?ids=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa&ids=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "recordings",
+                "batch"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
             "description": "Fetch up to 100 recordings by id. Order preserved; missing/unauthorized ids skipped."
           }
         },
@@ -142,18 +360,62 @@
           "name": "Batch fetch (POST)",
           "request": {
             "method": "POST",
-            "url": { "raw": "{{baseUrl}}/api/recordings/batch", "host": ["{{baseUrl}}"], "path": ["api", "recordings", "batch"] },
-            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{token}}" }],
-            "body": { "mode": "raw", "raw": "{\n  \"ids\": [\n    \"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\",\n    \"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\"\n  ]\n}" }
+            "url": {
+              "raw": "{{baseUrl}}/api/recordings/batch",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "recordings",
+                "batch"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ids\": [\n    \"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\",\n    \"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\"\n  ]\n}"
+            }
           }
         },
         {
           "name": "Build playlist",
           "request": {
             "method": "POST",
-            "url": { "raw": "{{baseUrl}}/api/recordings/play", "host": ["{{baseUrl}}"], "path": ["api", "recordings", "play"] },
-            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{token}}" }],
-            "body": { "mode": "raw", "raw": "{\n  \"ids\": [\n    \"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\",\n    \"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\"\n  ]\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/recordings/play",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "recordings",
+                "play"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ids\": [\n    \"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\",\n    \"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\"\n  ]\n}"
+            },
             "description": "Returns ordered playlist items with streamUrl (GET /api/recordings/{id}/stream) for sequential playback."
           }
         },
@@ -161,8 +423,29 @@
           "name": "Stream recording (with Range header)",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{baseUrl}}/api/recordings/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/stream", "host": ["{{baseUrl}}"], "path": ["api", "recordings", ":id", "stream"] },
-            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }, { "key": "Range", "value": "bytes=0-1023", "disabled": true }],
+            "url": {
+              "raw": "{{baseUrl}}/api/recordings/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/stream",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "recordings",
+                ":id",
+                "stream"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Range",
+                "value": "bytes=0-1023",
+                "disabled": true
+              }
+            ],
             "description": "Streams the file with HTTP Range support (206 Partial Content). Add the Range header to seek. Requires the recording to have a FilePath (i.e. uploaded via the batch pipeline)."
           }
         }
@@ -175,9 +458,31 @@
           "name": "1. Start upload",
           "request": {
             "method": "POST",
-            "url": { "raw": "{{baseUrl}}/api/upload/start", "host": ["{{baseUrl}}"], "path": ["api", "upload", "start"] },
-            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{token}}" }],
-            "body": { "mode": "raw", "raw": "{\n  \"fileName\": \"team-sync.mp4\",\n  \"type\": 4,\n  \"totalChunks\": 3,\n  \"sourceLanguageCode\": \"en\",\n  \"fileSizeBytes\": 300\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/upload/start",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "upload",
+                "start"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"22222222-2222-2222-2222-222222222222\",\n  \"file_name\": \"meeting.mp4\",\n  \"type\": \"meeting\",\n  \"total_chunks\": 3,\n  \"source_language_code\": \"en\",\n  \"file_size_bytes\": 3000,\n  \"duration_seconds\": 95\n}"
+            },
             "event": [
               {
                 "listen": "test",
@@ -195,21 +500,67 @@
           "name": "2a. Upload chunk 1",
           "request": {
             "method": "POST",
-            "url": { "raw": "{{baseUrl}}/api/upload/chunk", "host": ["{{baseUrl}}"], "path": ["api", "upload", "chunk"] },
-            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/upload/chunk",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "upload",
+                "chunk"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
             "body": {
               "mode": "formdata",
               "formdata": [
-                { "key": "batchId", "value": "{{batchId}}" },
-                { "key": "chunkNumber", "value": "1" },
-                { "key": "totalChunks", "value": "3" },
-                { "key": "userId", "value": "22222222-2222-2222-2222-222222222222" },
-                { "key": "uploadedAt", "value": "2026-07-29T10:00:00Z" },
-                { "key": "summary", "value": "Chunk metadata rides along with every chunk." },
-                { "key": "transcript", "value": "..." },
-                { "key": "actions", "value": "..." },
-                { "key": "notes", "value": "..." },
-                { "key": "file", "type": "file", "src": "/tmp/chunk_1.bin" }
+                {
+                  "key": "batchId",
+                  "value": "{{batchId}}"
+                },
+                {
+                  "key": "chunkNumber",
+                  "value": "1"
+                },
+                {
+                  "key": "totalChunks",
+                  "value": "3"
+                },
+                {
+                  "key": "userId",
+                  "value": "22222222-2222-2222-2222-222222222222"
+                },
+                {
+                  "key": "uploadedAt",
+                  "value": "2026-07-29T10:00:00Z"
+                },
+                {
+                  "key": "summary",
+                  "value": "Team sync"
+                },
+                {
+                  "key": "transcript",
+                  "value": "[{\"speaker\": \"A\", \"text\": \"hello\", \"timestamp_seconds\": 5}]"
+                },
+                {
+                  "key": "actions",
+                  "value": "[{\"text\": \"follow up\", \"done\": false}]"
+                },
+                {
+                  "key": "notes",
+                  "value": "[{\"id\": \"n1\", \"start_seconds\": 0, \"end_seconds\": 10, \"text\": \"note\", \"clip_path\": null}]"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "/tmp/chunk_1.bin"
+                }
               ]
             }
           }
@@ -218,16 +569,47 @@
           "name": "2b. Upload chunk 2",
           "request": {
             "method": "POST",
-            "url": { "raw": "{{baseUrl}}/api/upload/chunk", "host": ["{{baseUrl}}"], "path": ["api", "upload", "chunk"] },
-            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/upload/chunk",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "upload",
+                "chunk"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
             "body": {
               "mode": "formdata",
               "formdata": [
-                { "key": "batchId", "value": "{{batchId}}" },
-                { "key": "chunkNumber", "value": "2" },
-                { "key": "totalChunks", "value": "3" },
-                { "key": "userId", "value": "22222222-2222-2222-2222-222222222222" },
-                { "key": "file", "type": "file", "src": "/tmp/chunk_2.bin" }
+                {
+                  "key": "batchId",
+                  "value": "{{batchId}}"
+                },
+                {
+                  "key": "chunkNumber",
+                  "value": "2"
+                },
+                {
+                  "key": "totalChunks",
+                  "value": "3"
+                },
+                {
+                  "key": "userId",
+                  "value": "22222222-2222-2222-2222-222222222222"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "/tmp/chunk_2.bin"
+                }
               ]
             }
           }
@@ -236,16 +618,47 @@
           "name": "2c. Upload chunk 3",
           "request": {
             "method": "POST",
-            "url": { "raw": "{{baseUrl}}/api/upload/chunk", "host": ["{{baseUrl}}"], "path": ["api", "upload", "chunk"] },
-            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/upload/chunk",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "upload",
+                "chunk"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
             "body": {
               "mode": "formdata",
               "formdata": [
-                { "key": "batchId", "value": "{{batchId}}" },
-                { "key": "chunkNumber", "value": "3" },
-                { "key": "totalChunks", "value": "3" },
-                { "key": "userId", "value": "22222222-2222-2222-2222-222222222222" },
-                { "key": "file", "type": "file", "src": "/tmp/chunk_3.bin" }
+                {
+                  "key": "batchId",
+                  "value": "{{batchId}}"
+                },
+                {
+                  "key": "chunkNumber",
+                  "value": "3"
+                },
+                {
+                  "key": "totalChunks",
+                  "value": "3"
+                },
+                {
+                  "key": "userId",
+                  "value": "22222222-2222-2222-2222-222222222222"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "/tmp/chunk_3.bin"
+                }
               ]
             }
           }
@@ -254,25 +667,79 @@
           "name": "3. Upload status",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{baseUrl}}/api/upload/status/{{batchId}}", "host": ["{{baseUrl}}"], "path": ["api", "upload", "status", ":batchId"] },
-            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+            "url": {
+              "raw": "{{baseUrl}}/api/upload/status/{{batchId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "upload",
+                "status",
+                ":batchId"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
           }
         },
         {
           "name": "4. Retry chunk",
           "request": {
             "method": "POST",
-            "url": { "raw": "{{baseUrl}}/api/upload/retry", "host": ["{{baseUrl}}"], "path": ["api", "upload", "retry"] },
-            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{token}}" }],
-            "body": { "mode": "raw", "raw": "{\n  \"batchId\": \"{{batchId}}\",\n  \"chunkNumber\": 2\n}" }
+            "url": {
+              "raw": "{{baseUrl}}/api/upload/retry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "upload",
+                "retry"
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"batch_id\": \"{{batchId}}\",\n  \"chunk_number\": 2\n}"
+            }
           }
         },
         {
           "name": "5. Complete upload",
           "request": {
             "method": "POST",
-            "url": { "raw": "{{baseUrl}}/api/upload/complete/{{batchId}}", "host": ["{{baseUrl}}"], "path": ["api", "upload", "complete", ":batchId"] },
-            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+            "url": {
+              "raw": "{{baseUrl}}/api/upload/complete/{{batchId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "upload",
+                "complete",
+                ":batchId"
+              ]
+            },
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
           }
         }
       ]

@@ -60,11 +60,15 @@ public class RecordingServiceTests
             .ReturnsAsync(true);
 
         var result = await CreateSut().CreateRecordingAsync(new CreateRecordingRequest(
-            UserId, "  New Meeting  ", RecordingType.Video, null, TimeSpan.FromMinutes(10), "sum", null, "act", null,
-            false, true, null, "en", TranscriptionStatus.Pending));
+            UserId, "  New Meeting  ", RecordingType.Video, null, TimeSpan.FromMinutes(10), "sum",
+            new List<TranscriptLineDto> { new("A", "hello", 5) },
+            new List<ActionItemDto> { new("act", false) },
+            null,
+            false, true, null, "en", TranscriptionStatus.None));
 
         result.Title.Should().Be("New Meeting");   // trimmed
         result.Bookmarked.Should().BeTrue();
+        result.Transcript.Should().ContainSingle().Which.Text.Should().Be("hello");
         _recRepo.Verify(r => r.Add(It.IsAny<Recording>()), Times.Once);
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -87,11 +91,12 @@ public class RecordingServiceTests
             .ReturnsAsync(Sample);
 
         var result = await CreateSut().UpdateRecordingAsync(Sample.Id,
-            new UpdateRecordingRequest(null, null, TimeSpan.FromMinutes(45), null, null, null, "new note",
+            new UpdateRecordingRequest(null, null, TimeSpan.FromMinutes(45), null, null, null,
+                new List<RecordingNoteDto> { new(null, 0, 30, "new note", null) },
                 null, null, null, null, null));
 
         result.Duration.Should().Be(TimeSpan.FromMinutes(45));
-        result.Notes.Should().Be("new note");
+        result.Notes.Should().ContainSingle().Which.Text.Should().Be("new note");
         result.Title.Should().Be("Sprint Planning");   // untouched
     }
 

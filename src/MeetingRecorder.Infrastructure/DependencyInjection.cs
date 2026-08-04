@@ -31,6 +31,7 @@ public static class DependencyInjection
         services.AddScoped<ITokenService, JwtTokenService>();
         services.AddScoped<IPasswordHasher, BcryptPasswordHasher>();
         services.AddScoped<IChunkStorageService, LocalChunkStorageService>();
+        services.AddSingleton<IFirebaseAuthService, FirebaseAuthService>();
 
         return services;
     }

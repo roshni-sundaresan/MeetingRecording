@@ -47,6 +47,7 @@ public class BatchUploadService : IBatchUploadService
             Type = request.Type,
             SourceLanguageCode = request.SourceLanguageCode,
             TotalChunks = request.TotalChunks,
+            Duration = request.Duration ?? (request.DurationSeconds is int ds ? TimeSpan.FromSeconds(ds) : TimeSpan.Zero),
             Status = UploadStatus.InProgress
         };
 
@@ -183,7 +184,7 @@ public class BatchUploadService : IBatchUploadService
                 Title = Path.GetFileNameWithoutExtension(batch.FileName),
                 Type = batch.Type,
                 CreatedAt = DateTime.UtcNow,
-                Duration = TimeSpan.Zero,
+                Duration = batch.Duration,
                 Summary = batch.Summary,
                 Transcript = batch.Transcript,
                 Actions = batch.Actions,
@@ -192,7 +193,7 @@ public class BatchUploadService : IBatchUploadService
                 Bookmarked = false,
                 FilePath = finalPath,
                 SourceLanguageCode = batch.SourceLanguageCode,
-                TranscriptionStatus = TranscriptionStatus.Pending
+                TranscriptionStatus = TranscriptionStatus.None
             };
             _uow.Repository<Recording>().Add(recording);
 

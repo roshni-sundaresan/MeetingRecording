@@ -13,6 +13,7 @@ public class StartUploadValidator : AbstractValidator<DTOs.StartUploadRequest>
         RuleFor(x => x.SourceLanguageCode).MaximumLength(16);
         RuleFor(x => x.FileSizeBytes).GreaterThan(0).When(x => x.FileSizeBytes.HasValue);
         RuleFor(x => x.Duration).GreaterThanOrEqualTo(TimeSpan.Zero).When(x => x.Duration.HasValue);
+        RuleFor(x => x.DurationSeconds).GreaterThanOrEqualTo(0).When(x => x.DurationSeconds.HasValue);
     }
 }
 

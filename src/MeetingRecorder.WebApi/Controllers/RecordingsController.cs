@@ -80,7 +80,7 @@ public class RecordingsController : ApiControllerBase
 
         var baseUrl = $"{Request.Scheme}://{Request.Host}";
         IReadOnlyList<RecordingPlaylistItem> playlist = recordings.Select(r => new RecordingPlaylistItem(
-            r.Id, r.Title, r.Type, r.Duration,
+            r.Id, r.Title, r.Type, r.Duration, r.DurationSeconds,
             $"{baseUrl}/api/recordings/{r.Id}/stream",
             ContentTypeFor(r.FilePath),
             r.SourceLanguageCode,

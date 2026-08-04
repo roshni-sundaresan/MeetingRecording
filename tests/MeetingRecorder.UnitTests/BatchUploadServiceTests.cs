@@ -118,7 +118,7 @@ public class BatchUploadServiceTests
 
         result.Title.Should().Be("meeting");
         result.FilePath.Should().Be("/tmp/final.mp4");
-        result.TranscriptionStatus.Should().Be(TranscriptionStatus.Pending);
+        result.TranscriptionStatus.Should().Be(TranscriptionStatus.None);
         batch.Status.Should().Be(UploadStatus.Completed);
         _recRepo.Verify(r => r.Add(It.IsAny<Recording>()), Times.Once);
         _chunkRepo.Verify(r => r.Remove(It.IsAny<UploadChunk>()), Times.Exactly(3));

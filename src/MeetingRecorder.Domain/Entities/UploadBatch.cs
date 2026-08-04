@@ -16,6 +16,7 @@ public class UploadBatch : BaseEntity
     public int TotalChunks { get; set; }
     public UploadStatus Status { get; set; } = UploadStatus.InProgress;
     public long TotalBytesReceived { get; set; }
+    public TimeSpan Duration { get; set; } = TimeSpan.Zero;
     public string? Summary { get; set; }
     public string? Transcript { get; set; }
     public string? Actions { get; set; }

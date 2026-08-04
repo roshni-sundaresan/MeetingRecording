@@ -1,6 +1,16 @@
 # Meeting Recorder API
 
-Production-ready ASP.NET Core 9 backend for a meeting recording application — user & recording management, JWT authentication, and a resumable **chunked upload pipeline** (start → chunk → status → retry → complete), built with Clean Architecture.
+Production-ready backend for a meeting recording app — Clean Architecture, ASP.NET Core 9, EF Core + SQL Server, JWT (+ optional Firebase ID tokens), resumable chunked uploads, HTTP Range streaming.
+
+## JSON contract (Flutter-app friendly)
+
+- **snake_case** property names everywhere (`created_at`, `duration_seconds`, `file_path`, `user_id`, …)
+- **Enums serialize as strings** (`type`: `audio|video|screen|meeting|other|interview|voice_note`; `transcription_status`: `none|processing|completed|failed`)
+- **Structured blocks**: `transcript` = `[{speaker, text, timestamp_seconds}]`, `actions` = `[{text, done}]`, `notes` = `[{id, start_seconds, end_seconds, text, clip_path}]` (stored as JSON in the DB, parsed on read)
+- `duration_seconds` (int) is accepted on create/upload-start and returned on every read; `duration` (ISO `HH:mm:ss`) is also kept for compatibility
+- **Auth**: native JWT (`Authorization: Bearer <token>`) **or** Firebase ID tokens (when `FIREBASE_CREDENTIALS_PATH` / `GOOGLE_APPLICATION_CREDENTIALS` points at a service account; Firebase users auto-provision into `Users` keyed by `FirebaseUid`)
+
+## API surface
 
 ## Tech Stack
 
