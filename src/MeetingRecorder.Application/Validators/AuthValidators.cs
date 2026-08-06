@@ -11,6 +11,24 @@ public class LoginValidator : AbstractValidator<DTOs.LoginRequest>
     }
 }
 
+public class ForgotPasswordValidator : AbstractValidator<DTOs.ForgotPasswordRequest>
+{
+    public ForgotPasswordValidator()
+    {
+        RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(320);
+    }
+}
+
+public class ResetPasswordValidator : AbstractValidator<DTOs.ResetPasswordRequest>
+{
+    public ResetPasswordValidator()
+    {
+        RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(320);
+        RuleFor(x => x.ResetToken).NotEmpty().MaximumLength(256);
+        RuleFor(x => x.NewPassword).NotEmpty().MinimumLength(8).MaximumLength(128);
+    }
+}
+
 public class RegisterValidator : AbstractValidator<DTOs.RegisterRequest>
 {
     public RegisterValidator()

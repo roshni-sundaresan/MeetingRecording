@@ -89,4 +89,75 @@ public class AuthServiceTests
         result.Token.Should().Be("jwt-token");
         result.User.Email.Should().Be("new@test.com");   // lower-cased + trimmed
     }
+
+    // ── Password reset ──
+
+    [Fact]
+    public async Task ForgotPassword_ForExistingUser_IssuesToken()
+    {
+        _uow.Setup(u => u.Repository<User>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ActiveUser);
+
+        var result = await CreateSut().ForgotPasswordAsync(new ForgotPasswordRequest("user@test.com"));
+
+        result.ResetToken.Should().NotBeNullOrEmpty();
+        result.ExpiresMinutes.Should().Be(15);
+    }
+
+    [Fact]
+    public async Task ForgotPassword_ForUnknownUser_ReturnsNoToken()
+    {
+        _uow.Setup(u => u.Repository<User>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((User?)null);
+
+        var result = await CreateSut().ForgotPasswordAsync(new ForgotPasswordRequest("ghost@test.com"));
+
+        result.ResetToken.Should().BeNull();   // no account enumeration
+    }
+
+    [Fact]
+    public async Task ResetPassword_WithValidCode_UpdatesHashAndIsSingleUse()
+    {
+        // Dedicated user — never mutate the shared ActiveUser fixture.
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = "resetuser@test.com",
+            Name = "Reset User",
+            PasswordHash = "old-hash",
+            Role = "User"
+        };
+        _uow.SetupSequence(u => u.Repository<User>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user)
+            .ReturnsAsync(user);
+        _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.FromResult(1));
+        _hasher.Setup(h => h.Hash("NewPassw0rd!")).Returns("new-hash");
+
+        var sut = CreateSut();
+        var issued = await sut.ForgotPasswordAsync(new ForgotPasswordRequest("resetuser@test.com"));
+        issued.ResetToken.Should().NotBeNull();
+
+        // First reset succeeds
+        var act = () => sut.ResetPasswordAsync(new ResetPasswordRequest("resetuser@test.com", issued.ResetToken!, "NewPassw0rd!"));
+        await act.Should().NotThrowAsync();
+        user.PasswordHash.Should().Be("new-hash");
+
+        // Token is single-use: reuse fails
+        var reuse = () => sut.ResetPasswordAsync(new ResetPasswordRequest("resetuser@test.com", issued.ResetToken!, "AnotherPassw0rd!"));
+        await reuse.Should().ThrowAsync<AppException>().Where(e => e.StatusCode == 400);
+    }
+
+    [Fact]
+    public async Task ResetPassword_WithWrongCode_ThrowsBadRequest()
+    {
+        _uow.Setup(u => u.Repository<User>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ActiveUser);
+
+        var sut = CreateSut();
+        await sut.ForgotPasswordAsync(new ForgotPasswordRequest("user@test.com"));
+
+        var act = () => sut.ResetPasswordAsync(new ResetPasswordRequest("user@test.com", "WRONG-CODE", "NewPassw0rd!"));
+
+        await act.Should().ThrowAsync<AppException>().Where(e => e.StatusCode == 400);
+    }
 }
