@@ -56,10 +56,13 @@ check("swagger.json reachable", s == 200, f"got {s}")
 print("== 2. Auth ==")
 
 def login(email, password):
-    """Login with a 429 backoff (auth policy = 20/min/IP; smoke runs stack up)."""
+    return auth_call("POST", "/api/auth/login", {"email": email, "password": password})
+
+def auth_call(method, path, body):
+    """Auth-policy calls with a 429 backoff (20/min/IP; smoke runs stack up)."""
     import time as _t
     for _ in range(3):
-        s, r = call("POST", "/api/auth/login", {"email": email, "password": password})
+        s, r = call(method, path, body)
         if s != 429:
             return s, r
         print("  (auth rate-limited — waiting 62s)")
@@ -298,21 +301,21 @@ s, r = login("admin@meetingrecorder.dev", "Admin@123")
 rt1 = r["data"]["refresh_token"]
 check("login returns token_type + refresh token", s == 200
       and r["data"]["token_type"] == "Bearer" and rt1 and r["data"]["refresh_expires_at"], json.dumps(r["data"])[:200])
-s, r = call("POST", "/api/auth/refresh", {"refresh_token": rt1})
+s, r = auth_call("POST", "/api/auth/refresh", {"refresh_token": rt1})
 rt2 = r["data"]["refresh_token"] if r.get("success") else None
 check("refresh rotates to a new pair", s == 200 and r["data"]["token"] and rt2 and rt2 != rt1)
-s, r = call("POST", "/api/auth/refresh", {"refresh_token": rt1})
+s, r = auth_call("POST", "/api/auth/refresh", {"refresh_token": rt1})
 check("reused (revoked) refresh token -> 401", s == 401 and r["errorCode"] == "INVALID_REFRESH_TOKEN", json.dumps(r)[:150])
-s, r = call("POST", "/api/auth/logout", {"refresh_token": rt2})
+s, r = auth_call("POST", "/api/auth/logout", {"refresh_token": rt2})
 check("logout revokes the session", s == 200 and r["success"])
-s, r = call("POST", "/api/auth/refresh", {"refresh_token": rt2})
+s, r = auth_call("POST", "/api/auth/refresh", {"refresh_token": rt2})
 check("refresh after logout -> 401", s == 401, json.dumps(r)[:120])
 
 # 10b. Register conflict codes (EMAIL_TAKEN / MOBILE_TAKEN)
-s, r = call("POST", "/api/auth/register", {"email": "admin@meetingrecorder.dev", "name": "Dup", "mobile": "+91 99999 99991", "password": "Passw0rd!"})
+s, r = auth_call("POST", "/api/auth/register", {"email": "admin@meetingrecorder.dev", "name": "Dup", "mobile": "+91 99999 99991", "password": "Passw0rd!"})
 check("duplicate email -> 409 EMAIL_TAKEN", s == 409 and r["errorCode"] == "EMAIL_TAKEN", json.dumps(r)[:150])
-call("POST", "/api/auth/register", {"email": "dupmobile@test.dev", "name": "First", "mobile": "+91 88888 00000", "password": "Passw0rd!"})
-s, r = call("POST", "/api/auth/register", {"email": "other@test.dev", "name": "Second", "mobile": "+91 88888 00000", "password": "Passw0rd!"})
+auth_call("POST", "/api/auth/register", {"email": "dupmobile@test.dev", "name": "First", "mobile": "+91 88888 00000", "password": "Passw0rd!"})
+s, r = auth_call("POST", "/api/auth/register", {"email": "other@test.dev", "name": "Second", "mobile": "+91 88888 00000", "password": "Passw0rd!"})
 check("duplicate mobile -> 409 MOBILE_TAKEN", s == 409 and r["errorCode"] == "MOBILE_TAKEN", json.dumps(r)[:150])
 
 # 10c. Signed URL streaming (anonymous media player path)
