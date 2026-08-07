@@ -31,6 +31,8 @@ public class UserService : IUserService
 
     public Task<PagedResult<UserResponse>> GetUsersAsync(QueryParameters query, CancellationToken ct = default)
     {
+        QueryGuard.Validate(query, QueryGuard.AllowedUserSort);
+
         var repo = _uow.Repository<User>();
         var baseQuery = repo.Query().Where(u => !u.IsDeleted);
 
@@ -110,6 +112,26 @@ public class UserService : IUserService
         user.IsDeleted = true;   // soft delete
         user.UpdatedDate = DateTime.UtcNow;
         _uow.Repository<User>().Update(user);
+
+        // Cascade (soft): the user's recordings disappear from lists/streams
+        // and all their sessions are revoked immediately.
+        var recordings = _uow.Repository<Recording>().Query()
+            .Where(r => r.UserId == id && !r.IsDeleted).ToList();
+        foreach (var rec in recordings)
+        {
+            rec.IsDeleted = true;
+            rec.UpdatedDate = DateTime.UtcNow;
+            _uow.Repository<Recording>().Update(rec);
+        }
+
+        var tokens = _uow.Repository<RefreshToken>().Query()
+            .Where(t => t.UserId == id && t.RevokedAt == null).ToList();
+        foreach (var token in tokens)
+        {
+            token.RevokedAt = DateTime.UtcNow;
+            _uow.Repository<RefreshToken>().Update(token);
+        }
+
         await _uow.SaveChangesAsync(ct);
     }
 }

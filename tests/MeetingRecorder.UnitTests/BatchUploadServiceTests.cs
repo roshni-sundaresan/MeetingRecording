@@ -98,7 +98,7 @@ public class BatchUploadServiceTests
             .ReturnsAsync(batch);
         _chunkRepo.Setup(r => r.Query()).Returns(Chunks(2).AsQueryable());   // only chunks 1..2 of 3
 
-        var act = () => CreateSut().CompleteUploadAsync(BatchId);
+        var act = () => CreateSut().CompleteUploadAsync(BatchId, null);
 
         await act.Should().ThrowAsync<AppException>().WithMessage("*Missing chunk(s): 3*");
     }
@@ -114,7 +114,7 @@ public class BatchUploadServiceTests
         _storage.Setup(s => s.MergeChunksAsync(BatchId, 3, It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("/tmp/final.mp4");
 
-        var result = await CreateSut().CompleteUploadAsync(BatchId);
+        var result = await CreateSut().CompleteUploadAsync(BatchId, null);
 
         result.Title.Should().Be("meeting");
         result.FilePath.Should().Be("/tmp/final.mp4");
@@ -133,7 +133,7 @@ public class BatchUploadServiceTests
         _batchRepo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<UploadBatch, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(batch);
 
-        var act = () => CreateSut().CompleteUploadAsync(BatchId);
+        var act = () => CreateSut().CompleteUploadAsync(BatchId, null);
 
         await act.Should().ThrowAsync<AppException>().Where(e => e.StatusCode == 409);
     }

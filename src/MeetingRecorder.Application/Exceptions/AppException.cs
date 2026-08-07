@@ -5,9 +5,13 @@ public class AppException : Exception
 {
     public int StatusCode { get; }
 
-    public AppException(string message, int statusCode = 400) : base(message)
+    /// <summary>Stable machine-readable code (e.g. EMAIL_TAKEN) surfaced on the API envelope.</summary>
+    public string? ErrorCode { get; }
+
+    public AppException(string message, int statusCode = 400, string? errorCode = null) : base(message)
     {
         StatusCode = statusCode;
+        ErrorCode = errorCode;
     }
 }
 
@@ -21,7 +25,7 @@ public sealed class NotFoundException : AppException
 
 public sealed class ConflictException : AppException
 {
-    public ConflictException(string message) : base(message, 409)
+    public ConflictException(string message, string? errorCode = null) : base(message, 409, errorCode)
     {
     }
 }
@@ -31,7 +35,7 @@ public sealed class ValidationException : AppException
     public IReadOnlyDictionary<string, string[]> Errors { get; }
 
     public ValidationException(IReadOnlyDictionary<string, string[]> errors)
-        : base("One or more validation errors occurred.", 400)
+        : base("One or more validation errors occurred.", 400, "VALIDATION_ERROR")
     {
         Errors = errors;
     }

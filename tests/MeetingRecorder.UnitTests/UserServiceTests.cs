@@ -81,11 +81,14 @@ public class UserServiceTests
     }
 
     [Fact]
-    public async Task DeleteUser_SoftDeletes()
+    public async Task DeleteUser_SoftDeletes_AndCascades()
     {
         var alice = NewUser("Alice", "alice@test.com", "1111111111");
         _repo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(alice);
+        // No recordings or sessions exist for Alice — cascade is a no-op.
+        _uow.Setup(u => u.Repository<Recording>().Query()).Returns(new List<Recording>().AsQueryable());
+        _uow.Setup(u => u.Repository<RefreshToken>().Query()).Returns(new List<RefreshToken>().AsQueryable());
 
         await CreateSut().DeleteUserAsync(alice.Id);
 

@@ -54,7 +54,19 @@ check("swagger.json reachable", s == 200, f"got {s}")
 
 # 2. Login (seeded admin)
 print("== 2. Auth ==")
-s, r = call("POST", "/api/auth/login", {"email": "admin@meetingrecorder.dev", "password": "Admin@123"})
+
+def login(email, password):
+    """Login with a 429 backoff (auth policy = 20/min/IP; smoke runs stack up)."""
+    import time as _t
+    for _ in range(3):
+        s, r = call("POST", "/api/auth/login", {"email": email, "password": password})
+        if s != 429:
+            return s, r
+        print("  (auth rate-limited — waiting 62s)")
+        _t.sleep(62)
+    return s, r
+
+s, r = login("admin@meetingrecorder.dev", "Admin@123")
 check("admin login succeeds", s == 200 and r["success"] and r["data"]["token"], json.dumps(r)[:150])
 token = r["data"]["token"] if r.get("success") else None
 
@@ -194,11 +206,11 @@ check("POST batch skips unknown id", s == 200 and len(r["data"]) == 1, json.dump
 s, r = call("POST", "/api/recordings/batch", {"ids": []}, token=token)
 check("empty batch -> 400", s == 400 and not r["success"])
 
-# 8e. Playlist
+# 8e. Playlist (now with short-lived signed stream URLs)
 s, r = call("POST", "/api/recordings/play", {"ids": [rec_a["id"], rec_b["id"]]}, token=token)
 pl = r["data"]
-check("playlist built with stream urls", s == 200 and len(pl) == 2
-      and pl[0]["stream_url"].endswith(f"/api/recordings/{rec_a['id']}/stream")
+check("playlist built with signed stream urls", s == 200 and len(pl) == 2
+      and "/stream?expires=" in pl[0]["stream_url"] and "&sig=" in pl[0]["stream_url"]
       and pl[0]["content_type"] == "video/mp4"
       and pl[0]["duration_seconds"] is not None, json.dumps(pl)[:250])
 
@@ -277,6 +289,88 @@ if structured_id:
     check("delete structured recording", s == 200)
     s, r = call("GET", f"/api/recordings/{structured_id}", token=token)
     check("deleted -> 404", s == 404)
+
+# 10. Hardening: refresh tokens, signed URLs, list guards, upload caps
+print("== 10. Hardening (refresh / signed urls / guards / caps) ==")
+
+# 10a. Refresh token rotation: login carries it, refresh rotates, old one dies
+s, r = login("admin@meetingrecorder.dev", "Admin@123")
+rt1 = r["data"]["refresh_token"]
+check("login returns token_type + refresh token", s == 200
+      and r["data"]["token_type"] == "Bearer" and rt1 and r["data"]["refresh_expires_at"], json.dumps(r["data"])[:200])
+s, r = call("POST", "/api/auth/refresh", {"refresh_token": rt1})
+rt2 = r["data"]["refresh_token"] if r.get("success") else None
+check("refresh rotates to a new pair", s == 200 and r["data"]["token"] and rt2 and rt2 != rt1)
+s, r = call("POST", "/api/auth/refresh", {"refresh_token": rt1})
+check("reused (revoked) refresh token -> 401", s == 401 and r["errorCode"] == "INVALID_REFRESH_TOKEN", json.dumps(r)[:150])
+s, r = call("POST", "/api/auth/logout", {"refresh_token": rt2})
+check("logout revokes the session", s == 200 and r["success"])
+s, r = call("POST", "/api/auth/refresh", {"refresh_token": rt2})
+check("refresh after logout -> 401", s == 401, json.dumps(r)[:120])
+
+# 10b. Register conflict codes (EMAIL_TAKEN / MOBILE_TAKEN)
+s, r = call("POST", "/api/auth/register", {"email": "admin@meetingrecorder.dev", "name": "Dup", "mobile": "+91 99999 99991", "password": "Passw0rd!"})
+check("duplicate email -> 409 EMAIL_TAKEN", s == 409 and r["errorCode"] == "EMAIL_TAKEN", json.dumps(r)[:150])
+call("POST", "/api/auth/register", {"email": "dupmobile@test.dev", "name": "First", "mobile": "+91 88888 00000", "password": "Passw0rd!"})
+s, r = call("POST", "/api/auth/register", {"email": "other@test.dev", "name": "Second", "mobile": "+91 88888 00000", "password": "Passw0rd!"})
+check("duplicate mobile -> 409 MOBILE_TAKEN", s == 409 and r["errorCode"] == "MOBILE_TAKEN", json.dumps(r)[:150])
+
+# 10c. Signed URL streaming (anonymous media player path)
+s, r = call("POST", "/api/recordings/play", {"ids": [rec_a["id"]]}, token=token)
+signed = r["data"][0]["stream_url"]
+signed_req = _ur.Request(signed)
+with _ur.urlopen(signed_req, timeout=30) as resp:
+    signed_body = resp.read()
+check("signed url streams without auth", resp.status == 200 and len(signed_body) == full_size)
+req = _ur.Request(signed + "&expires=1&sig=deadbeef")
+try:
+    with _ur.urlopen(req, timeout=30):
+        tampered_ok = False
+except Exception:
+    tampered_ok = True
+check("tampered/expired signature -> rejected", tampered_ok)
+
+# 10d. List guards: sortBy whitelist + date filters + pageSize cap
+s, r = call("GET", "/api/recordings?sortBy=evil_column", token=token)
+check("invalid sortBy -> 400 VALIDATION_ERROR", s == 400 and r["errorCode"] == "VALIDATION_ERROR", json.dumps(r)[:150])
+s, r = call("GET", "/api/recordings?sortBy=created_at&sortOrder=desc&createdAfter=2026-01-01T00:00:00Z", token=token)
+check("valid sortBy + createdAfter filter", s == 200 and r["success"])
+s, r = call("GET", "/api/recordings?pageSize=9999", token=token)
+check("pageSize capped at 100", s == 200 and r["data"]["page_size"] == 100)
+
+# 10e. Upload caps: chunk-count bound + checksum + start validation
+s, r = call("POST", "/api/upload/start", {"user_id": "22222222-2222-2222-2222-222222222222",
+                                          "file_name": "big.mp4", "type": "audio", "total_chunks": 9999,
+                                          "source_language_code": "en"}, token=token)
+check("totalChunks > 512 -> 400", s == 400 and r["errorCode"] == "VALIDATION_ERROR", json.dumps(r)[:150])
+s, r = call("POST", "/api/upload/start", {"user_id": "22222222-2222-2222-2222-222222222222",
+                                          "file_name": "../../etc/passwd", "type": "audio", "total_chunks": 1,
+                                          "source_language_code": "en"}, token=token)
+check("start response has no upload_directory leak", s == 201 and "upload_directory" not in r["data"]
+      and "batch_id" in r["data"], json.dumps(r["data"])[:150])
+b3 = r["data"]["batch_id"]
+import hashlib
+chunk_bytes_ok = bytes([7]) * 400
+chunk_bytes_bad = bytes([8]) * 400
+good_sum = hashlib.sha256(chunk_bytes_ok).hexdigest()
+s, r = call("POST", "/api/upload/chunk", {"batchId": b3, "chunkNumber": 1, "totalChunks": 1,
+                                          "userId": "22222222-2222-2222-2222-222222222222",
+                                          "checksumSha256": good_sum},
+            token=token, files={"file": ("ok.bin", chunk_bytes_ok, "application/octet-stream")})
+check("chunk with correct sha256 accepted", s == 200 and r["success"], json.dumps(r)[:150])
+s, r = call("POST", "/api/upload/retry", {"batch_id": b3, "chunk_number": 1}, token=token)
+s, r = call("POST", "/api/upload/chunk", {"batchId": b3, "chunkNumber": 1, "totalChunks": 1,
+                                          "userId": "22222222-2222-2222-2222-222222222222",
+                                          "checksumSha256": good_sum},
+            token=token, files={"file": ("bad.bin", chunk_bytes_bad, "application/octet-stream")})
+check("chunk with wrong sha256 -> 400 CHECKSUM_MISMATCH", s == 400 and r["errorCode"] == "CHECKSUM_MISMATCH", json.dumps(r)[:150])
+s, r = call("POST", "/api/upload/chunk", {"batchId": b3, "chunkNumber": 1, "totalChunks": 1,
+                                          "userId": "22222222-2222-2222-2222-222222222222",
+                                          "checksumSha256": good_sum},
+            token=token, files={"file": ("ok.bin", chunk_bytes_ok, "application/octet-stream")})
+check("re-upload good chunk after rejected one", s == 200 and r["success"], json.dumps(r)[:150])
+s, r = call("POST", "/api/upload/complete/" + b3, token=token)
+check("complete after checksum flow", s == 201)
 
 print(f"\nRESULT: {ok} passed, {fail} failed")
 sys.exit(1 if fail else 0)

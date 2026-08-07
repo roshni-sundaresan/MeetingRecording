@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using MeetingRecorder.Application.Interfaces;
 using Microsoft.Extensions.Options;
@@ -40,6 +41,16 @@ public class JwtTokenService : ITokenService
             signingCredentials: credentials);
 
         return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
+    }
+
+    public string GenerateRefreshToken()
+        => Convert.ToBase64String(RandomNumberGenerator.GetBytes(48))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    public string HashRefreshToken(string token)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
     public ClaimsPrincipal? ValidateToken(string token)

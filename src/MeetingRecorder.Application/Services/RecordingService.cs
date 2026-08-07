@@ -34,11 +34,19 @@ public class RecordingService : IRecordingService
 
     public Task<PagedResult<RecordingResponse>> GetRecordingsAsync(Guid? userId, QueryParameters query, CancellationToken ct = default)
     {
+        QueryGuard.Validate(query);
+
         var repo = _uow.Repository<Recording>();
         var baseQuery = repo.Query().Where(r => !r.IsDeleted);
 
         if (userId.HasValue)
             baseQuery = baseQuery.Where(r => r.UserId == userId.Value);
+
+        if (query.CreatedAfter.HasValue)
+            baseQuery = baseQuery.Where(r => r.CreatedAt >= query.CreatedAfter.Value);
+
+        if (query.CreatedBefore.HasValue)
+            baseQuery = baseQuery.Where(r => r.CreatedAt <= query.CreatedBefore.Value);
 
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
@@ -50,11 +58,14 @@ public class RecordingService : IRecordingService
 
         var total = baseQuery.Count();
 
-        var sorted = (query.SortBy?.ToLowerInvariant()) switch
+        // Normalized key (created_at == createdat) — QueryGuard validated it.
+        var sortKey = query.SortBy?.ToLowerInvariant().Replace("_", "");
+        var sorted = sortKey switch
         {
             "title" => query.SortOrder == "desc" ? baseQuery.OrderByDescending(r => r.Title) : baseQuery.OrderBy(r => r.Title),
             "duration" => query.SortOrder == "desc" ? baseQuery.OrderByDescending(r => r.Duration) : baseQuery.OrderBy(r => r.Duration),
             "createdat" => query.SortOrder == "desc" ? baseQuery.OrderByDescending(r => r.CreatedAt) : baseQuery.OrderBy(r => r.CreatedAt),
+            "updatedat" => query.SortOrder == "desc" ? baseQuery.OrderByDescending(r => r.UpdatedDate) : baseQuery.OrderBy(r => r.UpdatedDate),
             _ => query.SortOrder == "desc" ? baseQuery.OrderByDescending(r => r.CreatedAt) : baseQuery.OrderBy(r => r.CreatedAt)
         };
 

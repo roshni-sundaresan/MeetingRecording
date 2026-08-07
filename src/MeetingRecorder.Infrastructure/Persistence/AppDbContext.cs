@@ -14,6 +14,7 @@ public class AppDbContext : DbContext
     public DbSet<Recording> Recordings => Set<Recording>();
     public DbSet<UploadBatch> UploadBatches => Set<UploadBatch>();
     public DbSet<UploadChunk> UploadChunks => Set<UploadChunk>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

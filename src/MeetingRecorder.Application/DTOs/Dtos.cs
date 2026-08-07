@@ -16,7 +16,15 @@ public record ResetPasswordRequest(string Email, string ResetToken, string NewPa
 /// message.
 public record ForgotPasswordResponse(string Message, string? ResetToken, int ExpiresMinutes);
 
-public record AuthResponse(string Token, DateTime ExpiresAt, UserResponse User);
+/// <summary>
+/// Auth payload returned by login/register/refresh. Includes the short-lived
+/// JWT (token_type: Bearer) plus a longer-lived refresh token for silent
+/// session renewal via POST /api/auth/refresh.
+/// </summary>
+public record AuthResponse(string Token, DateTime ExpiresAt, UserResponse User,
+    string TokenType = "Bearer", string? RefreshToken = null, DateTime? RefreshExpiresAt = null);
+
+public record RefreshTokenRequest(string RefreshToken);
 
 // ---------- Users ----------
 public record UserResponse(Guid Id, string Email, string Name, string Mobile, string? ProfilePhotoUrl,
@@ -64,7 +72,9 @@ public record RecordingResponse(Guid Id, Guid UserId, string Title, RecordingTyp
 public record StartUploadRequest(Guid UserId, string FileName, RecordingType Type, int TotalChunks,
     string? SourceLanguageCode, long? FileSizeBytes, TimeSpan? Duration, int? DurationSeconds = null);
 
-public record StartUploadResponse(Guid BatchId, int TotalChunks, string UploadDirectory);
+/// <summary>Batch identifier + expected chunk count. The internal storage path
+/// is intentionally not exposed to clients.</summary>
+public record StartUploadResponse(Guid BatchId, int TotalChunks);
 
 /// <summary>
 /// Chunk metadata arrives as multipart form values (inherently strings).
@@ -72,7 +82,8 @@ public record StartUploadResponse(Guid BatchId, int TotalChunks, string UploadDi
 /// and deserialized by the service when the recording is finalized.
 /// </summary>
 public record UploadChunkRequest(Guid BatchId, int ChunkNumber, int TotalChunks, Guid UserId,
-    DateTime? UploadedAt, string? Summary, string? Transcript, string? Actions, string? Notes);
+    DateTime? UploadedAt, string? Summary, string? Transcript, string? Actions, string? Notes,
+    string? ChecksumSha256 = null);
 
 public record UploadStatusResponse(Guid BatchId, Guid UserId, string FileName, int TotalChunks,
     IReadOnlyList<int> ReceivedChunks, bool IsComplete, string Status, long TotalBytesReceived);

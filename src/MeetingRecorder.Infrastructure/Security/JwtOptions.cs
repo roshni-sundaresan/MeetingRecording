@@ -9,4 +9,5 @@ public class JwtOptions
     public string Audience { get; set; } = "MeetingRecorder.Client";
     public string Key { get; set; } = string.Empty;
     public int ExpiryMinutes { get; set; } = 120;
+    public int RefreshExpiryDays { get; set; } = 7;
 }

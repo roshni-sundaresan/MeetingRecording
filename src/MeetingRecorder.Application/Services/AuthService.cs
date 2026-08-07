@@ -12,6 +12,8 @@ public interface IAuthService
 {
     Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken ct = default);
     Task<AuthResponse> RegisterAsync(RegisterRequest request, CancellationToken ct = default);
+    Task<AuthResponse> RefreshAsync(RefreshTokenRequest request, CancellationToken ct = default);
+    Task LogoutAsync(RefreshTokenRequest request, CancellationToken ct = default);
     Task<ForgotPasswordResponse> ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken ct = default);
     Task ResetPasswordAsync(ResetPasswordRequest request, CancellationToken ct = default);
 }
@@ -31,6 +33,10 @@ public class AuthService : IAuthService
     private static readonly TimeSpan ResetTokenLifetime = TimeSpan.FromMinutes(15);
     private const int ResetTokenLength = 32;
 
+    /// Refresh tokens are single-use and rotate on every refresh; lifetime is
+    /// 7 days (mirrors Jwt:RefreshExpiryDays in appsettings).
+    private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(7);
+
     public AuthService(IUnitOfWork uow, ITokenService tokenService, IPasswordHasher passwordHasher)
     {
         _uow = uow;
@@ -46,21 +52,26 @@ public class AuthService : IAuthService
         if (user is null || !_passwordHasher.Verify(request.Password, user.PasswordHash))
             throw new AppException("Invalid email or password.", 401);
 
-        return BuildAuthResponse(user);
+        return await BuildAuthResponseAsync(user, ct);
     }
 
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
     {
         var email = request.Email.ToLowerInvariant().Trim();
-        var exists = await _uow.Repository<User>().AnyAsync(u => u.Email == email && !u.IsDeleted, ct);
-        if (exists)
-            throw new ConflictException($"A user with email '{email}' already exists.");
+        var repo = _uow.Repository<User>();
+
+        if (await repo.AnyAsync(u => u.Email == email && !u.IsDeleted, ct))
+            throw new ConflictException($"A user with email '{email}' already exists.", "EMAIL_TAKEN");
+
+        var mobile = request.Mobile.Trim();
+        if (await repo.AnyAsync(u => u.Mobile == mobile && !u.IsDeleted, ct))
+            throw new ConflictException($"A user with mobile '{mobile}' already exists.", "MOBILE_TAKEN");
 
         var user = new User
         {
             Email = email,
             Name = request.Name.Trim(),
-            Mobile = request.Mobile.Trim(),
+            Mobile = mobile,
             ProfilePhotoUrl = request.ProfilePhotoUrl,
             PasswordHash = _passwordHasher.Hash(request.Password),
             Role = Roles.User
@@ -69,7 +80,42 @@ public class AuthService : IAuthService
         _uow.Repository<User>().Add(user);
         await _uow.SaveChangesAsync(ct);
 
-        return BuildAuthResponse(user);
+        return await BuildAuthResponseAsync(user, ct);
+    }
+
+    /// <summary>
+    /// Exchange a still-valid refresh token for a fresh JWT + a rotated
+    /// refresh token (single-use rotation: the presented token is revoked).
+    /// </summary>
+    public async Task<AuthResponse> RefreshAsync(RefreshTokenRequest request, CancellationToken ct = default)
+    {
+        var stored = await FindActiveRefreshTokenAsync(request.RefreshToken, ct);
+        if (stored is null)
+            throw new AppException("Invalid or expired refresh token.", 401, "INVALID_REFRESH_TOKEN");
+
+        var user = await _uow.Repository<User>()
+            .FirstOrDefaultAsync(u => u.Id == stored.UserId && !u.IsDeleted, ct);
+        if (user is null)
+            throw new AppException("Invalid or expired refresh token.", 401, "INVALID_REFRESH_TOKEN");
+
+        // Rotate: revoke the presented token, issue a brand-new pair.
+        stored.RevokedAt = DateTime.UtcNow;
+        _uow.Repository<RefreshToken>().Update(stored);
+        await _uow.SaveChangesAsync(ct);
+
+        return await BuildAuthResponseAsync(user, ct);
+    }
+
+    /// <summary>Revoke the presented refresh token (end the session).</summary>
+    public async Task LogoutAsync(RefreshTokenRequest request, CancellationToken ct = default)
+    {
+        var stored = await FindActiveRefreshTokenAsync(request.RefreshToken, ct);
+        if (stored is null)
+            return;   // idempotent — nothing to revoke
+
+        stored.RevokedAt = DateTime.UtcNow;
+        _uow.Repository<RefreshToken>().Update(stored);
+        await _uow.SaveChangesAsync(ct);
     }
 
     public async Task<ForgotPasswordResponse> ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken ct = default)
@@ -99,23 +145,51 @@ public class AuthService : IAuthService
             entry.Token != request.ResetToken ||
             entry.ExpiresAt < DateTime.UtcNow)
         {
-            throw new AppException("Invalid or expired reset code.", 400);
+            throw new AppException("Invalid or expired reset code.", 400, "INVALID_RESET_CODE");
         }
 
         var user = await _uow.Repository<User>()
             .FirstOrDefaultAsync(u => u.Email == email && !u.IsDeleted, ct);
         if (user is null)
-            throw new AppException("Invalid or expired reset code.", 400);
+            throw new AppException("Invalid or expired reset code.", 400, "INVALID_RESET_CODE");
 
         user.PasswordHash = _passwordHasher.Hash(request.NewPassword);
         await _uow.SaveChangesAsync(ct);
         ResetTokens.TryRemove(email, out _);
     }
 
-    private AuthResponse BuildAuthResponse(User user)
+    private async Task<RefreshToken?> FindActiveRefreshTokenAsync(string token, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return null;
+
+        var hash = _tokenService.HashRefreshToken(token);
+        var stored = await _uow.Repository<RefreshToken>()
+            .FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
+
+        if (stored is null || stored.RevokedAt is not null || stored.ExpiresAt < DateTime.UtcNow)
+            return null;
+
+        return stored;
+    }
+
+    private async Task<AuthResponse> BuildAuthResponseAsync(User user, CancellationToken ct)
     {
         var (token, expiresAt) = _tokenService.GenerateToken(user.Id, user.Email, user.Name, user.Role);
+
+        var refreshToken = _tokenService.GenerateRefreshToken();
+        var refreshExpiresAt = DateTime.UtcNow + RefreshTokenLifetime;
+        _uow.Repository<RefreshToken>().Add(new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            TokenHash = _tokenService.HashRefreshToken(refreshToken),
+            ExpiresAt = refreshExpiresAt
+        });
+        await _uow.SaveChangesAsync(ct);
+
         return new AuthResponse(token, expiresAt, new UserResponse(
-            user.Id, user.Email, user.Name, user.Mobile, user.ProfilePhotoUrl, user.CreatedDate, user.UpdatedDate, user.Role));
+            user.Id, user.Email, user.Name, user.Mobile, user.ProfilePhotoUrl, user.CreatedDate, user.UpdatedDate, user.Role),
+            TokenType: "Bearer", RefreshToken: refreshToken, RefreshExpiresAt: refreshExpiresAt);
     }
 }

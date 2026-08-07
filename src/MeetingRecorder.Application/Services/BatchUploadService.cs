@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using AutoMapper;
 using MeetingRecorder.Application.DTOs;
 using MeetingRecorder.Application.Exceptions;
@@ -12,15 +13,19 @@ public interface IBatchUploadService
 {
     Task<StartUploadResponse> StartUploadAsync(StartUploadRequest request, CancellationToken ct = default);
     Task<UploadStatusResponse> UploadChunkAsync(UploadChunkRequest request, Stream chunkContent, CancellationToken ct = default);
-    Task<UploadStatusResponse> GetUploadStatusAsync(Guid batchId, CancellationToken ct = default);
-    Task<UploadStatusResponse> RetryChunkAsync(Guid batchId, int chunkNumber, CancellationToken ct = default);
-    Task<RecordingResponse> CompleteUploadAsync(Guid batchId, CancellationToken ct = default);
+    Task<UploadStatusResponse> GetUploadStatusAsync(Guid batchId, Guid? requesterUserId, CancellationToken ct = default);
+    Task<UploadStatusResponse> RetryChunkAsync(Guid batchId, int chunkNumber, Guid? requesterUserId, CancellationToken ct = default);
+    Task<RecordingResponse> CompleteUploadAsync(Guid batchId, Guid? requesterUserId, CancellationToken ct = default);
 }
 
 public class BatchUploadService : IBatchUploadService
 {
     // Serializes merge per batch so two "complete" calls cannot race on the same batch.
     private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> BatchLocks = new();
+
+    public const int MaxChunksPerBatch = 512;
+    public const long MaxFileSizeBytes = 2L * 1024 * 1024 * 1024;          // 2 GB declared total
+    public const long MaxChunkSizeBytes = 60L * 1024 * 1024;               // 60 MB per chunk
 
     private readonly IUnitOfWork _uow;
     private readonly IChunkStorageService _chunkStorage;
@@ -35,6 +40,18 @@ public class BatchUploadService : IBatchUploadService
 
     public async Task<StartUploadResponse> StartUploadAsync(StartUploadRequest request, CancellationToken ct = default)
     {
+        // ---- input caps (defense in depth; validators mirror these) ----
+        if (request.TotalChunks is < 1 or > MaxChunksPerBatch)
+            throw new AppException($"TotalChunks must be between 1 and {MaxChunksPerBatch}.", 400, "VALIDATION_ERROR");
+        if (request.FileSizeBytes is > MaxFileSizeBytes)
+            throw new AppException($"File size must not exceed {MaxFileSizeBytes / (1024 * 1024 * 1024)} GB.", 400, "VALIDATION_ERROR");
+
+        var fileName = Path.GetFileName(request.FileName.Trim());   // strip any path segments
+        if (string.IsNullOrWhiteSpace(fileName))
+            throw new AppException("file_name must not be empty.", 400, "VALIDATION_ERROR");
+        if (fileName.Length > 255)
+            throw new AppException("file_name must not exceed 255 characters.", 400, "VALIDATION_ERROR");
+
         var userExists = await _uow.Repository<User>().AnyAsync(u => u.Id == request.UserId && !u.IsDeleted, ct);
         if (!userExists)
             throw new NotFoundException(nameof(User), request.UserId);
@@ -43,7 +60,7 @@ public class BatchUploadService : IBatchUploadService
         {
             Id = Guid.NewGuid(),
             UserId = request.UserId,
-            FileName = Path.GetFileName(request.FileName.Trim()),   // strip any path segments
+            FileName = fileName,
             Type = request.Type,
             SourceLanguageCode = request.SourceLanguageCode,
             TotalChunks = request.TotalChunks,
@@ -54,7 +71,7 @@ public class BatchUploadService : IBatchUploadService
         _uow.Repository<UploadBatch>().Add(batch);
         await _uow.SaveChangesAsync(ct);
 
-        return new StartUploadResponse(batch.Id, batch.TotalChunks, $"chunks/{batch.Id}");
+        return new StartUploadResponse(batch.Id, batch.TotalChunks);
     }
 
     public async Task<UploadStatusResponse> UploadChunkAsync(UploadChunkRequest request, Stream chunkContent, CancellationToken ct = default)
@@ -70,7 +87,25 @@ public class BatchUploadService : IBatchUploadService
         if (chunkContent.Length <= 0)
             throw new AppException("Chunk payload is empty.");
 
-        await _chunkStorage.SaveChunkAsync(batch.Id, request.ChunkNumber, chunkContent, ct);
+        if (chunkContent.Length > MaxChunkSizeBytes)
+            throw new AppException($"Chunk must not exceed {MaxChunkSizeBytes / (1024 * 1024)} MB.", 400, "VALIDATION_ERROR");
+
+        // Buffer the chunk so the declared checksum can be verified before it
+        // is written to storage.
+        await using var buffer = new MemoryStream();
+        await chunkContent.CopyToAsync(buffer, ct);
+        if (buffer.Length <= 0)
+            throw new AppException("Chunk payload is empty.");
+
+        if (!string.IsNullOrWhiteSpace(request.ChecksumSha256))
+        {
+            var actual = Convert.ToHexString(SHA256.HashData(buffer.ToArray())).ToLowerInvariant();
+            if (!actual.Equals(request.ChecksumSha256.Trim().ToLowerInvariant(), StringComparison.Ordinal))
+                throw new AppException("Chunk checksum mismatch (sha256).", 400, "CHECKSUM_MISMATCH");
+        }
+
+        buffer.Position = 0;   // always rewind before handing to storage
+        await _chunkStorage.SaveChunkAsync(batch.Id, request.ChunkNumber, buffer, ct);
 
         // Upsert the chunk registry row (retries simply overwrite the same row).
         var repo = _uow.Repository<UploadChunk>();
@@ -102,13 +137,15 @@ public class BatchUploadService : IBatchUploadService
         _uow.Repository<UploadBatch>().Update(batch);
 
         await _uow.SaveChangesAsync(ct);
-        return await GetUploadStatusAsync(batch.Id, ct);
+        return await GetUploadStatusAsync(batch.Id, request.UserId, ct);
     }
 
-    public async Task<UploadStatusResponse> GetUploadStatusAsync(Guid batchId, CancellationToken ct = default)
+    public async Task<UploadStatusResponse> GetUploadStatusAsync(Guid batchId, Guid? requesterUserId, CancellationToken ct = default)
     {
         var batch = await _uow.Repository<UploadBatch>().FirstOrDefaultAsync(b => b.Id == batchId, ct)
             ?? throw new NotFoundException(nameof(UploadBatch), batchId);
+
+        EnsureBatchOwnership(batch, requesterUserId);
 
         var chunks = _uow.Repository<UploadChunk>().Query()
             .Where(c => c.UploadBatchId == batchId)
@@ -123,10 +160,12 @@ public class BatchUploadService : IBatchUploadService
             received, complete, batch.Status.ToString(), batch.TotalBytesReceived);
     }
 
-    public async Task<UploadStatusResponse> RetryChunkAsync(Guid batchId, int chunkNumber, CancellationToken ct = default)
+    public async Task<UploadStatusResponse> RetryChunkAsync(Guid batchId, int chunkNumber, Guid? requesterUserId, CancellationToken ct = default)
     {
         var batch = await _uow.Repository<UploadBatch>().FirstOrDefaultAsync(b => b.Id == batchId, ct)
             ?? throw new NotFoundException(nameof(UploadBatch), batchId);
+
+        EnsureBatchOwnership(batch, requesterUserId);
 
         if (chunkNumber < 1 || chunkNumber > batch.TotalChunks)
             throw new AppException($"ChunkNumber must be between 1 and {batch.TotalChunks}.");
@@ -140,10 +179,10 @@ public class BatchUploadService : IBatchUploadService
             await _uow.SaveChangesAsync(ct);
         }
 
-        return await GetUploadStatusAsync(batchId, ct);
+        return await GetUploadStatusAsync(batchId, requesterUserId, ct);
     }
 
-    public async Task<RecordingResponse> CompleteUploadAsync(Guid batchId, CancellationToken ct = default)
+    public async Task<RecordingResponse> CompleteUploadAsync(Guid batchId, Guid? requesterUserId, CancellationToken ct = default)
     {
         var gate = BatchLocks.GetOrAdd(batchId, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct);
@@ -152,8 +191,10 @@ public class BatchUploadService : IBatchUploadService
             var batch = await _uow.Repository<UploadBatch>().FirstOrDefaultAsync(b => b.Id == batchId, ct)
                 ?? throw new NotFoundException(nameof(UploadBatch), batchId);
 
+            EnsureBatchOwnership(batch, requesterUserId);
+
             if (batch.Status == UploadStatus.Completed)
-                throw new AppException("This upload has already been completed.", 409);
+                throw new AppException("This upload has already been completed.", 409, "UPLOAD_ALREADY_COMPLETED");
 
             var chunks = _uow.Repository<UploadChunk>().Query()
                 .Where(c => c.UploadBatchId == batchId)
@@ -241,5 +282,13 @@ public class BatchUploadService : IBatchUploadService
             throw new AppException($"Upload is not accepting chunks (status: {batch.Status}).");
 
         return batch;
+    }
+
+    /// <summary>Non-admin callers may only touch their own batches. A null
+    /// requester means an admin bypass.</summary>
+    private static void EnsureBatchOwnership(UploadBatch batch, Guid? requesterUserId)
+    {
+        if (requesterUserId.HasValue && batch.UserId != requesterUserId.Value)
+            throw new AppException("You do not have permission to access this upload batch.", 403);
     }
 }

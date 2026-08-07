@@ -65,7 +65,8 @@ public class GlobalExceptionMiddleware
         context.Response.StatusCode = statusCode;
         context.Response.ContentType = "application/json";
 
-        var envelope = ApiResponseFactory.Fail(message, statusCode, errors);
+        var envelope = ApiResponseFactory.Fail(message, statusCode, errors,
+            (exception as AppException)?.ErrorCode);
         await context.Response.WriteAsync(JsonSerializer.Serialize(envelope, new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase

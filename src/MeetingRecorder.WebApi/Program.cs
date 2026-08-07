@@ -113,6 +113,17 @@ try
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0
             }));
+
+        // Auth endpoints (login/register/refresh/logout): 20 requests/minute
+        // per IP — blunts credential stuffing while allowing normal user flows.
+        options.AddPolicy("auth", ctx => RateLimitPartition.GetFixedWindowLimiter(
+            ctx.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
     });
 
     // ---------- Authentication: hybrid (native JWT + optional Firebase ID tokens) ----------
@@ -144,6 +155,8 @@ try
     builder.Services.AddApplication();
     builder.Services.AddInfrastructure(builder.Configuration);
     builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
+    builder.Services.Configure<SignedUrlOptions>(builder.Configuration.GetSection(SignedUrlOptions.SectionName));
+    builder.Services.AddSingleton<ISignedUrlService, SignedUrlService>();
 
     var app = builder.Build();
 

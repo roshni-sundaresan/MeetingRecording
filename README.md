@@ -117,43 +117,49 @@ All endpoints return the standard envelope:
 { "success": true, "message": "...", "data": { }, "errors": null, "statusCode": 200 }
 ```
 
-### Auth (public)
+### Auth (public; login/register/refresh rate-limited 20/min per IP → 429)
 | Method | Route | Description |
 |---|---|---|
-| POST | `/api/auth/login` | Exchange email+password for a JWT |
-| POST | `/api/auth/register` | Create account, returns JWT |
+| POST | `/api/auth/login` | Exchange email+password for a JWT **+ refresh token** |
+| POST | `/api/auth/register` | Create account, returns JWT + refresh token (409 + `errorCode` `EMAIL_TAKEN`/`MOBILE_TAKEN` on conflicts) |
+| POST | `/api/auth/refresh` | Rotate a refresh token → fresh JWT + new refresh token (single-use rotation) |
+| POST | `/api/auth/logout` | Revoke the presented refresh token (idempotent) |
+| POST | `/api/auth/forgot-password` | Issue a reset code (dev mode returns it inline as `reset_token`) |
+| POST | `/api/auth/reset-password` | Complete the reset with the code |
+
+Auth responses now include: `token`, `expires_at`, `token_type: "Bearer"`, `refresh_token`, `refresh_expires_at`, `user`.
 
 ### Users (JWT required; list/create are admin-only, others self-or-admin)
 | Method | Route | Description |
 |---|---|---|
-| GET | `/api/users?page=&pageSize=&search=&sortBy=&sortOrder=` | Paged, searchable, sortable list |
-| GET | `/api/users/{id}` | Single user |
+| GET | `/api/users?page=&pageSize=&search=&sortBy=&sortOrder=` | Paged, searchable, sortable list (pageSize capped at 100; sortBy whitelist: `name`, `email`, `created_at`) |
+| GET | `/api/users/{id}` | Single user (404 if unknown) |
 | POST | `/api/users` | Create (admin) |
 | PUT | `/api/users/{id}` | Update |
-| DELETE | `/api/users/{id}` | Soft delete |
+| DELETE | `/api/users/{id}` | Soft delete — **cascades**: the user's recordings are soft-deleted and all refresh tokens revoked |
 
-### Recordings (JWT required; owner-or-admin)
+### Recordings (JWT required; owner-or-admin — 403 for non-owners)
 | Method | Route | Description |
 |---|---|---|
-| GET | `/api/recordings?userId=&page=&pageSize=&search=&sortBy=&sortOrder=` | Paged list (users see only their own) |
+| GET | `/api/recordings?userId=&page=&pageSize=&search=&sortBy=&sortOrder=&createdAfter=&createdBefore=` | Paged list (users see only their own; pageSize capped at 100; sortBy whitelist: `title`, `duration`, `created_at`, `updated_at`; ISO-8601 date filters) |
 | GET | `/api/recordings/batch?ids=<id>&ids=<id>…` | Batch fetch by ids (≤100, order preserved, missing/unauthorized skipped) |
 | POST | `/api/recordings/batch` | Batch fetch, JSON body `{ "ids": […] }` |
-| POST | `/api/recordings/play` | Build playlist `{ "ids": […] }` → ordered items with `streamUrl`, `contentType`, `duration` |
-| GET | `/api/recordings/{id}` | Single recording |
-| GET | `/api/recordings/{id}/stream` | **Stream the file** — HTTP Range support (206/416) so players can seek/scrub |
-| POST | `/api/recordings` | Create |
-| PUT | `/api/recordings/{id}` | Update |
+| POST | `/api/recordings/play` | Build playlist `{ "ids": […] }` → ordered items with a **short-lived signed `streamUrl`** (HMAC, 10-min expiry) |
+| GET | `/api/recordings/{id}` | Single recording (404 if unknown) |
+| GET | `/api/recordings/{id}/stream` | **Stream the file** — HTTP Range support (206/416) so players can seek/scrub. Two auth paths: valid JWT (owner/admin) **or** a signed URL from `/play` |
+| POST | `/api/recordings` | Create — `file_path` is **system-managed** (ignored from client input) |
+| PUT | `/api/recordings/{id}` | Update — `file_path` system-managed; transcript/status remain owner-writable (client owns the transcription pipeline) |
 | PATCH | `/api/recordings/{id}/bookmark` | `{ "bookmarked": true }` |
 | DELETE | `/api/recordings/{id}` | Soft delete |
 
 ### Batch Upload (JWT required; stricter rate limit 60/min)
 | Method | Route | Description |
 |---|---|---|
-| POST | `/api/upload/start` | `{ userId, fileName, type, totalChunks, sourceLanguageCode, ... }` → `batchId` |
-| POST | `/api/upload/chunk` | **multipart/form-data**: file + `batchId, chunkNumber, totalChunks, userId, uploadedAt, summary, transcript, actions, notes` |
-| GET | `/api/upload/status/{batchId}` | Received chunks, `isComplete`, bytes received |
-| POST | `/api/upload/retry` | `{ batchId, chunkNumber }` — resets a chunk for re-upload |
-| POST | `/api/upload/complete/{batchId}` | Validate → merge in order → save recording → delete temp chunks → mark completed |
+| POST | `/api/upload/start` | `{ userId, fileName, type, totalChunks, sourceLanguageCode, ... }` → `batchId` + `totalChunks` (caps: totalChunks ≤ 512, file ≤ 2 GB, fileName ≤ 255 chars — no internal paths leaked) |
+| POST | `/api/upload/chunk` | **multipart/form-data**: file + `batchId, chunkNumber, totalChunks, userId, uploadedAt, summary, transcript, actions, notes, checksumSha256` (optional sha256 — verified when present; chunk ≤ 60 MB) |
+| GET | `/api/upload/status/{batchId}` | Received chunks, `isComplete`, bytes received (own batches only; 404 unknown) |
+| POST | `/api/upload/retry` | `{ batchId, chunkNumber }` — resets a chunk for re-upload (own batches only) |
+| POST | `/api/upload/complete/{batchId}` | Validate → merge in order → save recording → delete temp chunks → mark completed (own batches only; 409 if already completed; 400 listing missing chunks) |
 
 **Chunked upload flow** (matches the spec):
 
@@ -170,12 +176,15 @@ Chunks are stored under `uploads/chunks/{batchId}/` and merged files under `uplo
 - **JWT** — HS256, issuer/audience/lifetime validated, roles in claims; passwords hashed with **BCrypt** (cost 12).
 - **SQL injection** — EF Core parameterizes all queries; sorting uses a **whitelist** of allowed columns (no user input reaches expressions); no raw SQL.
 - **XSS** — input length limits + regex validation on all free-text fields; API returns JSON only (client-side rendering must escape content).
-- **Rate limiting** — 300 req/min per IP globally, 60 req/min on upload endpoints, HTTP 429 + JSON envelope on rejection.
+- **Rate limiting** — 300 req/min per IP globally, 60 req/min on upload endpoints, **20 req/min on auth endpoints** (login/register/refresh), HTTP 429 + JSON envelope on rejection.
 - **HTTPS** — `UseHttpsRedirection` (dev certs: `dotnet dev-certs https --trust`); disabled inside the container where the load balancer terminates TLS.
 - **CORS** — allow-list from `Cors:AllowedOrigins`; only configured origins can call the API.
-- **Global exception middleware** — every error becomes the standard envelope; internal details are never leaked (500s log full stack to Serilog).
-- **Ownership checks** — regular users can only read/write their own data; admin role bypasses.
-- **Soft deletes** — `IsDeleted` + global query filters keep the audit trail.
+- **Global exception middleware** — every error becomes the standard envelope (error envelopes use camelCase: `statusCode`/`errorCode`); internal details are never leaked (500s log full stack to Serilog).
+- **Structured error codes** — `EMAIL_TAKEN`, `MOBILE_TAKEN`, `VALIDATION_ERROR`, `INVALID_REFRESH_TOKEN`, `INVALID_RESET_CODE`, `CHECKSUM_MISMATCH`, `UPLOAD_ALREADY_COMPLETED` surface as `errorCode` on error envelopes.
+- **Ownership checks** — regular users can only read/write their own data (recordings, upload batches, profiles); admin role bypasses.
+- **Refresh tokens** — single-use, rotate on every refresh, hashed at rest (SHA-256), 7-day lifetime, revocable (logout / user delete).
+- **Signed stream URLs** — `/play` issues HMAC-signed, 10-minute URLs for media players that can't attach JWTs; `/stream` validates signature + expiry in constant time.
+- **Soft deletes** — `IsDeleted` + global query filters keep the audit trail; deleting a user cascades to their recordings + sessions.
 
 ## Observability
 

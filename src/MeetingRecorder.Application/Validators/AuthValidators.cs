@@ -40,3 +40,11 @@ public class RegisterValidator : AbstractValidator<DTOs.RegisterRequest>
         RuleFor(x => x.ProfilePhotoUrl).MaximumLength(1000);
     }
 }
+
+public class RefreshTokenValidator : AbstractValidator<DTOs.RefreshTokenRequest>
+{
+    public RefreshTokenValidator()
+    {
+        RuleFor(x => x.RefreshToken).NotEmpty().MaximumLength(256);
+    }
+}

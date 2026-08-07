@@ -25,6 +25,9 @@ Compiled from the live deployed spec (`https://meetings-api.idealake.com/swagger
   "data": {
     "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0…",
     "expires_at": "2026-08-06T10:18:14.736714Z",
+    "token_type": "Bearer",
+    "refresh_token": "a3K9…url-safe-base64…",
+    "refresh_expires_at": "2026-08-13T10:18:14.736714Z",
     "user": {
       "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
       "email": "admin@meetingrecorder.dev",
@@ -54,13 +57,16 @@ Compiled from the live deployed spec (`https://meetings-api.idealake.com/swagger
   "profile_photo_url": null
 }
 
-// Response 201 (real, live) — same shape as login
+// Response 201 (real, live) — same shape as login (token_type + refresh_token included)
 {
   "success": true,
   "message": "Registration successful.",
   "data": {
     "token": "eyJhbG…",
     "expires_at": "2026-08-06T10:20:00Z",
+    "token_type": "Bearer",
+    "refresh_token": "…",
+    "refresh_expires_at": "2026-08-13T10:20:00Z",
     "user": { "id": "…", "email": "user@example.com", "name": "Jane Doe",
               "mobile": "+91 90000 00000", "profile_photo_url": null,
               "created_date": "2026-08-06T10:19:00Z", "updated_date": null, "role": "User" }
@@ -70,7 +76,23 @@ Compiled from the live deployed spec (`https://meetings-api.idealake.com/swagger
 
 | Failure | Status | Body |
 |---|---|---|
-| Email taken | 409 | `{"success":false,"message":"A user with email 'user@example.com' already exists.","data":null,"statusCode":409}` |
+| Email taken | 409 | `{"success":false,"message":"A user with email 'user@example.com' already exists.","data":null,"statusCode":409,"errorCode":"EMAIL_TAKEN"}` |
+| Mobile taken | 409 | `…"message":"A user with mobile '+91 90000 00000' already exists.","errorCode":"MOBILE_TAKEN"}` |
+
+> **Error envelopes use camelCase** (`statusCode`/`errorCode`); success envelopes use snake_case (`status_code`).
+
+### 2b. POST /api/Auth/refresh *(public — rotate a refresh token)*
+```json
+{ "refresh_token": "a3K9…" }
+// → 200: fresh { token, expires_at, token_type, refresh_token (NEW), refresh_expires_at, user }
+// Reuse of a consumed/revoked token → 401 {"success":false,"message":"Invalid or expired refresh token.","errorCode":"INVALID_REFRESH_TOKEN"}
+```
+
+### 2c. POST /api/Auth/logout *(public — revoke a refresh token, idempotent)*
+```json
+{ "refresh_token": "a3K9…" }
+// → 200 { "success": true, "message": "Logged out.", "data": true }
+```
 
 > **New (local build only — not yet on deployed):** `POST /api/Auth/forgot-password` `{"email":"user@example.com"}` → `200 {"data":{"message":"…dev mode…","reset_token":"A1B2C3D4E5F6…","expires_minutes":15}}`  
 
