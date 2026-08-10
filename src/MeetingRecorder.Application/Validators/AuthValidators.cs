@@ -11,20 +11,36 @@ public class LoginValidator : AbstractValidator<DTOs.LoginRequest>
     }
 }
 
-public class ForgotPasswordValidator : AbstractValidator<DTOs.ForgotPasswordRequest>
+public class PasswordResetRequestValidator : AbstractValidator<DTOs.PasswordResetRequestRequest>
 {
-    public ForgotPasswordValidator()
+    public PasswordResetRequestValidator()
     {
-        RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(320);
+        RuleFor(x => x.Username).NotEmpty().EmailAddress().MaximumLength(320);
     }
 }
 
-public class ResetPasswordValidator : AbstractValidator<DTOs.ResetPasswordRequest>
+public class VerifyOtpValidator : AbstractValidator<DTOs.VerifyOtpRequest>
 {
-    public ResetPasswordValidator()
+    public VerifyOtpValidator()
     {
-        RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(320);
-        RuleFor(x => x.ResetToken).NotEmpty().MaximumLength(256);
+        RuleFor(x => x.ResetRequestId).NotEmpty().MaximumLength(64);
+        RuleFor(x => x.Otp).NotEmpty().Matches(@"^\d{6}$").WithMessage("OTP must be a 6-digit code.");
+    }
+}
+
+public class ResendOtpValidator : AbstractValidator<DTOs.ResendOtpRequest>
+{
+    public ResendOtpValidator()
+    {
+        RuleFor(x => x.Username).NotEmpty().EmailAddress().MaximumLength(320);
+    }
+}
+
+public class CompleteResetValidator : AbstractValidator<DTOs.CompleteResetRequest>
+{
+    public CompleteResetValidator()
+    {
+        RuleFor(x => x.ResetToken).NotEmpty().MaximumLength(512);
         RuleFor(x => x.NewPassword).NotEmpty().MinimumLength(8).MaximumLength(128);
     }
 }

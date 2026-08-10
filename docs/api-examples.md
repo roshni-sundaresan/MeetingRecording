@@ -94,9 +94,15 @@ Compiled from the live deployed spec (`https://meetings-api.idealake.com/swagger
 // → 200 { "success": true, "message": "Logged out.", "data": true }
 ```
 
-> **New (local build only — not yet on deployed):** `POST /api/Auth/forgot-password` `{"email":"user@example.com"}` → `200 {"data":{"message":"…dev mode…","reset_token":"A1B2C3D4E5F6…","expires_minutes":15}}`  
+> **Password reset (server-authoritative OTP flow, 4 steps):**
 
-> `POST /api/Auth/reset-password` `{"email":"user@example.com","reset_token":"A1B2…","new_password":"NewPassw0rd!"}` → `200 {"success":true,"message":"Password reset successful.","data":null,"statusCode":200}`
+> **1. Request OTP** — `POST /api/Auth/password-reset/request` `{"username":"user@example.com"}` → `200 {"success":true,"data":{"message":"If the account exists, an OTP has been sent.","reset_request_id":"c4a1…","expires_at":"…+5min","dev_otp":null}}`  (generic for unknown accounts — no enumeration; `dev_otp` populated only in Development)
+
+> **2. Verify OTP** — `POST /api/Auth/password-reset/verify-otp` `{"reset_request_id":"c4a1…","otp":"482731"}` → `200 {"success":true,"data":{"reset_token":"a3K9…","expires_at":"…+10min"}}` · wrong/expired/consumed OTP → `400 {"errorCode":"INVALID_OTP"}` (max 5 attempts)
+
+> **3. Resend OTP** — `POST /api/Auth/password-reset/resend-otp` `{"username":"user@example.com"}` → `200` (same shape as request) · within 60s cooldown → `429 {"errorCode":"RESEND_COOLDOWN"}`
+
+> **4. Complete** — `POST /api/Auth/password-reset/complete` `{"reset_token":"a3K9…","new_password":"NewSecurePassword123!"}` → `200 {"success":true,"message":"Password reset successful. Please sign in."}` · invalid/expired/used token → `400 {"errorCode":"INVALID_RESET_TOKEN"}` · all sessions revoked
 
 ---
 ## 🎙️ Recordings

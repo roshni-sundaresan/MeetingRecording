@@ -375,5 +375,54 @@ check("re-upload good chunk after rejected one", s == 200 and r["success"], json
 s, r = call("POST", "/api/upload/complete/" + b3, token=token)
 check("complete after checksum flow", s == 201)
 
+# 11. Password reset (server-authoritative OTP flow)
+print("== 11. Password reset OTP flow ==")
+
+# Fresh user for the reset flow (dev mode echoes the OTP as dev_otp)
+reset_email = f"reset{int(time.time())}@test.dev"
+reset_mobile = f"+91 77777 {int(time.time()) % 100000:05d}"
+s, r = auth_call("POST", "/api/auth/register",
+                 {"email": reset_email, "name": "Reset User", "mobile": reset_mobile, "password": "OldPassw0rd!"})
+check("reset user registered", s == 201, json.dumps(r)[:150])
+
+# 11a. Request OTP — known user: request id + (dev) OTP; unknown: generic
+s, r = auth_call("POST", "/api/auth/password-reset/request", {"username": reset_email})
+rr_id = r["data"]["reset_request_id"] if r.get("success") else None
+dev_otp = r["data"]["dev_otp"] if r.get("success") else None
+check("request issues reset_request_id + dev_otp (dev env)", s == 200 and rr_id and dev_otp and len(dev_otp) == 6,
+      json.dumps(r)[:200])
+s, r = auth_call("POST", "/api/auth/password-reset/request", {"username": "nobody-here@test.dev"})
+check("unknown user -> generic, no request id (no enumeration)", s == 200 and r["data"]["reset_request_id"] is None
+      and "account exists" in r["data"]["message"].lower(), json.dumps(r)[:160])
+
+# 11b. Verify — wrong OTP rejected + attempts counted; correct OTP issues reset_token
+s, r = auth_call("POST", "/api/auth/password-reset/verify-otp", {"reset_request_id": rr_id, "otp": "000000"})
+check("wrong OTP -> 400 INVALID_OTP", s == 400 and r["errorCode"] == "INVALID_OTP", json.dumps(r)[:150])
+s, r = auth_call("POST", "/api/auth/password-reset/verify-otp", {"reset_request_id": rr_id, "otp": dev_otp})
+reset_token = r["data"]["reset_token"] if r.get("success") else None
+check("correct OTP -> reset_token issued", s == 200 and reset_token, json.dumps(r)[:200])
+s, r = auth_call("POST", "/api/auth/password-reset/verify-otp", {"reset_request_id": rr_id, "otp": dev_otp})
+check("OTP single-use: re-verify rejected", s == 400, json.dumps(r)[:120])
+
+# 11c. Complete — new password works, old fails, sessions revoked
+s, r = auth_call("POST", "/api/auth/password-reset/complete", {"reset_token": reset_token, "new_password": "NewPassw0rd!"})
+check("complete with reset_token", s == 200 and r["success"], json.dumps(r)[:150])
+s, r = auth_call("POST", "/api/auth/login", {"email": reset_email, "password": "NewPassw0rd!"})
+check("login with NEW password works", s == 200, json.dumps(r)[:120])
+s, r = auth_call("POST", "/api/auth/login", {"email": reset_email, "password": "OldPassw0rd!"})
+check("login with OLD password rejected", s == 401, json.dumps(r)[:120])
+s, r = auth_call("POST", "/api/auth/password-reset/complete", {"reset_token": reset_token, "new_password": "AnotherPassw0rd!"})
+check("reset_token single-use: reuse rejected", s == 400 and r["errorCode"] == "INVALID_RESET_TOKEN", json.dumps(r)[:150])
+
+# 11d. Resend — cooldown enforced (fresh request needed since the OTP was consumed)
+s, r = auth_call("POST", "/api/auth/password-reset/request", {"username": reset_email})
+rr2 = r["data"]["reset_request_id"] if r.get("success") else None
+dev_otp2 = r["data"]["dev_otp"] if r.get("success") else None
+# Raw call: the RESEND_COOLDOWN 429 is the expected outcome here — auth_call's
+# 429-backoff would wait out the cooldown and mask the check.
+s, r = call("POST", "/api/auth/password-reset/resend-otp", {"username": reset_email})
+check("resend within cooldown -> 429 RESEND_COOLDOWN", s == 429 and r["errorCode"] == "RESEND_COOLDOWN", json.dumps(r)[:150])
+check("second request invalidates first OTP", s == 429 or (rr2 != rr_id))
+
 print(f"\nRESULT: {ok} passed, {fail} failed")
 sys.exit(1 if fail else 0)

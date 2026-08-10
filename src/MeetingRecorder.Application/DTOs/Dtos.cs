@@ -7,14 +7,23 @@ public record LoginRequest(string Email, string Password);
 
 public record RegisterRequest(string Email, string Name, string Mobile, string Password, string? ProfilePhotoUrl);
 
-public record ForgotPasswordRequest(string Email);
+// ---------- Password reset (server-authoritative OTP flow) ----------
+public record PasswordResetRequestRequest(string Username);
 
-public record ResetPasswordRequest(string Email, string ResetToken, string NewPassword);
+public record VerifyOtpRequest(string ResetRequestId, string Otp);
 
-/// Dev-mode response: the reset token is returned inline (no SMTP provider
-/// configured). Production should email the token instead and return only the
-/// message.
-public record ForgotPasswordResponse(string Message, string? ResetToken, int ExpiresMinutes);
+public record ResendOtpRequest(string Username);
+
+public record CompleteResetRequest(string ResetToken, string NewPassword);
+
+/// <summary>Response for request/resend. The OTP is never included except via
+/// <c>DevOtp</c>, which is only populated when PasswordReset:DevOtpExposure is
+/// enabled (development environments only).</summary>
+public record PasswordResetRequestResponse(string Message, Guid? ResetRequestId, DateTime? ExpiresAt, string? DevOtp = null);
+
+/// <summary>Issued only after successful OTP verification. Short-lived,
+/// single-use, bound to the specific user + reset request.</summary>
+public record VerifyOtpResponse(string ResetToken, DateTime ExpiresAt);
 
 /// <summary>
 /// Auth payload returned by login/register/refresh. Includes the short-lived

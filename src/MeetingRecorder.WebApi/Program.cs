@@ -3,6 +3,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using MeetingRecorder.Application;
 using MeetingRecorder.Application.Interfaces;
+using MeetingRecorder.Application.Services;
 using MeetingRecorder.Infrastructure;
 using MeetingRecorder.Infrastructure.Persistence;
 using MeetingRecorder.Infrastructure.Security;
@@ -124,6 +125,17 @@ try
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0
             }));
+
+        // Password-reset endpoints (OTP request/verify/resend/complete):
+        // 5 requests/minute per IP — prevents OTP brute-forcing + spam.
+        options.AddPolicy("reset", ctx => RateLimitPartition.GetFixedWindowLimiter(
+            ctx.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
     });
 
     // ---------- Authentication: hybrid (native JWT + optional Firebase ID tokens) ----------
@@ -157,6 +169,10 @@ try
     builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
     builder.Services.Configure<SignedUrlOptions>(builder.Configuration.GetSection(SignedUrlOptions.SectionName));
     builder.Services.AddSingleton<ISignedUrlService, SignedUrlService>();
+    builder.Services.Configure<PasswordResetOptions>(builder.Configuration.GetSection(PasswordResetOptions.SectionName));
+    builder.Services.AddSingleton<IOtpService, OtpService>();
+    builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
+    builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
 
     var app = builder.Build();
 

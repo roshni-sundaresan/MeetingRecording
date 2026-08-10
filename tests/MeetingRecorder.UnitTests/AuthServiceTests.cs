@@ -23,8 +23,19 @@ public class AuthServiceTests
     private readonly Mock<IUnitOfWork> _uow = new();
     private readonly Mock<ITokenService> _tokens = new();
     private readonly Mock<IPasswordHasher> _hasher = new();
+    private readonly Mock<IOtpService> _otp = new();
+    private readonly Mock<IEmailService> _email = new();
+    private readonly PasswordResetOptions _resetOptions = new()
+    {
+        OtpLifetimeMinutes = 5,
+        MaxOtpAttempts = 5,
+        ResendCooldownSeconds = 60,
+        ResetTokenLifetimeMinutes = 10,
+        DevOtpExposure = false
+    };
 
-    private AuthService CreateSut() => new(_uow.Object, _tokens.Object, _hasher.Object);
+    private AuthService CreateSut() => new(_uow.Object, _tokens.Object, _hasher.Object,
+        _otp.Object, _email.Object, Microsoft.Extensions.Options.Options.Create(_resetOptions));
 
     /// <summary>Common stubs for the refresh-token plumbing used by login/register/refresh.</summary>
     private void SetupAuthSuccess()
@@ -33,6 +44,34 @@ public class AuthServiceTests
         _tokens.Setup(t => t.HashRefreshToken(It.IsAny<string>())).Returns("rt-hash");
         _uow.Setup(u => u.Repository<RefreshToken>().Add(It.IsAny<RefreshToken>()));
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.FromResult(1));
+    }
+
+    /// <summary>Stubs for the password-reset flow: real crypto for hash/verify,
+    /// a fixed OTP from the mocked generator, and a persisted-request sink.</summary>
+    private PasswordResetRequest SetupResetFlow(string otp = "482731")
+    {
+        var realOtp = new OtpService();
+        _otp.Setup(o => o.GenerateOtp()).Returns(otp);
+        _otp.Setup(o => o.HashOtp(It.IsAny<string>())).Returns<string>(realOtp.HashOtp);
+        _otp.Setup(o => o.VerifyOtp(It.IsAny<string>(), It.IsAny<string>()))
+            .Returns<string, string>(realOtp.VerifyOtp);
+        _otp.Setup(o => o.GenerateResetToken()).Returns("reset-auth-token-xyz");
+        _uow.Setup(u => u.Repository<PasswordResetRequest>().Add(It.IsAny<PasswordResetRequest>()));
+        _uow.Setup(u => u.Repository<PasswordResetRequest>().Update(It.IsAny<PasswordResetRequest>()));
+        _uow.Setup(u => u.Repository<RefreshToken>().Query()).Returns(new List<RefreshToken>().AsQueryable());
+        _uow.Setup(u => u.Repository<PasswordResetRequest>().Query()).Returns(new List<PasswordResetRequest>().AsQueryable());
+        _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.FromResult(1));
+
+        return new PasswordResetRequest
+        {
+            Id = Guid.NewGuid(),
+            UserId = ActiveUser.Id,
+            OtpHash = realOtp.HashOtp(otp),
+            Purpose = AuthService.PurposePasswordReset,
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(5),
+            ResendAt = DateTime.UtcNow.AddSeconds(60)
+        };
     }
 
     [Fact]
@@ -209,35 +248,156 @@ public class AuthServiceTests
         await act.Should().NotThrowAsync();
     }
 
-    // ── Password reset ──
+    // ── Password reset (server-authoritative OTP flow) ──
 
     [Fact]
-    public async Task ForgotPassword_ForExistingUser_IssuesToken()
+    public async Task PasswordReset_Request_ForKnownUser_CreatesRequestEmailsAndReturnsRequestId()
     {
         _uow.Setup(u => u.Repository<User>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ActiveUser);
+        SetupResetFlow();
 
-        var result = await CreateSut().ForgotPasswordAsync(new ForgotPasswordRequest("user@test.com"));
+        var result = await CreateSut().RequestPasswordResetAsync(new PasswordResetRequestRequest("user@test.com"));
 
-        result.ResetToken.Should().NotBeNullOrEmpty();
-        result.ExpiresMinutes.Should().Be(15);
+        result.ResetRequestId.Should().NotBeNull();
+        result.ExpiresAt.Should().BeCloseTo(DateTime.UtcNow.AddMinutes(5), TimeSpan.FromMinutes(1));
+        result.DevOtp.Should().BeNull();   // production: never returns the OTP
+        _email.Verify(e => e.SendPasswordResetOtpAsync(ActiveUser.Email, "482731", 5, It.IsAny<CancellationToken>()), Times.Once);
+        _uow.Verify(u => u.Repository<PasswordResetRequest>().Add(It.IsAny<PasswordResetRequest>()), Times.Once);
     }
 
     [Fact]
-    public async Task ForgotPassword_ForUnknownUser_ReturnsNoToken()
+    public async Task PasswordReset_Request_ForUnknownUser_ReturnsGenericResponse()
     {
         _uow.Setup(u => u.Repository<User>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((User?)null);
 
-        var result = await CreateSut().ForgotPasswordAsync(new ForgotPasswordRequest("ghost@test.com"));
+        var result = await CreateSut().RequestPasswordResetAsync(new PasswordResetRequestRequest("ghost@test.com"));
 
-        result.ResetToken.Should().BeNull();   // no account enumeration
+        result.ResetRequestId.Should().BeNull();                 // no enumeration
+        result.Message.Should().Be("If the account exists, an OTP has been sent.");
+        _uow.Verify(u => u.Repository<PasswordResetRequest>().Add(It.IsAny<PasswordResetRequest>()), Times.Never);
+        _email.Verify(e => e.SendPasswordResetOtpAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
-    public async Task ResetPassword_WithValidCode_UpdatesHashAndIsSingleUse()
+    public async Task PasswordReset_Request_InDevMode_ReturnsOtp()
     {
-        // Dedicated user — never mutate the shared ActiveUser fixture.
+        _resetOptions.DevOtpExposure = true;
+        _uow.Setup(u => u.Repository<User>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ActiveUser);
+        SetupResetFlow();
+
+        var result = await CreateSut().RequestPasswordResetAsync(new PasswordResetRequestRequest("user@test.com"));
+
+        result.DevOtp.Should().Be("482731");   // dev-only convenience flag
+    }
+
+    [Fact]
+    public async Task PasswordReset_Verify_WithCorrectOtp_IssuesResetTokenAndConsumes()
+    {
+        var reset = SetupResetFlow();
+        _uow.Setup(u => u.Repository<User>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ActiveUser);
+        _uow.Setup(u => u.Repository<PasswordResetRequest>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(reset);
+
+        var result = await CreateSut().VerifyOtpAsync(new VerifyOtpRequest(reset.Id.ToString(), "482731"));
+
+        result.ResetToken.Should().Be("reset-auth-token-xyz");
+        reset.IsUsed.Should().BeTrue();                              // OTP consumed
+        reset.ResetTokenExpiresAt.Should().BeCloseTo(DateTime.UtcNow.AddMinutes(10), TimeSpan.FromMinutes(1));
+    }
+
+    [Fact]
+    public async Task PasswordReset_Verify_WithWrongOtp_IncrementsAttempts()
+    {
+        var reset = SetupResetFlow("482731");
+        _uow.Setup(u => u.Repository<PasswordResetRequest>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(reset);
+
+        var act = () => CreateSut().VerifyOtpAsync(new VerifyOtpRequest(reset.Id.ToString(), "000000"));
+
+        await act.Should().ThrowAsync<AppException>().Where(e => e.StatusCode == 400 && e.ErrorCode == "INVALID_OTP");
+        reset.AttemptCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task PasswordReset_Verify_ExceedingMaxAttempts_LocksRequest()
+    {
+        var reset = SetupResetFlow("482731");
+        reset.AttemptCount = 5;   // already at the limit
+        _uow.Setup(u => u.Repository<PasswordResetRequest>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(reset);
+
+        var act = () => CreateSut().VerifyOtpAsync(new VerifyOtpRequest(reset.Id.ToString(), "482731"));
+
+        await act.Should().ThrowAsync<AppException>().Where(e => e.StatusCode == 400);
+        reset.IsUsed.Should().BeTrue();   // locked — brute force bounded
+    }
+
+    [Fact]
+    public async Task PasswordReset_Verify_ExpiredOtp_Rejected()
+    {
+        var reset = SetupResetFlow("482731");
+        reset.ExpiresAt = DateTime.UtcNow.AddMinutes(-1);
+        _uow.Setup(u => u.Repository<PasswordResetRequest>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(reset);
+
+        var act = () => CreateSut().VerifyOtpAsync(new VerifyOtpRequest(reset.Id.ToString(), "482731"));
+
+        await act.Should().ThrowAsync<AppException>().Where(e => e.StatusCode == 400);
+    }
+
+    [Fact]
+    public async Task PasswordReset_Verify_ConsumedOtp_Rejected()
+    {
+        var reset = SetupResetFlow("482731");
+        reset.IsUsed = true;
+        _uow.Setup(u => u.Repository<PasswordResetRequest>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(reset);
+
+        var act = () => CreateSut().VerifyOtpAsync(new VerifyOtpRequest(reset.Id.ToString(), "482731"));
+
+        await act.Should().ThrowAsync<AppException>().Where(e => e.StatusCode == 400);
+    }
+
+    [Fact]
+    public async Task PasswordReset_Resend_WithinCooldown_Rejected()
+    {
+        _uow.Setup(u => u.Repository<User>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ActiveUser);
+        var active = SetupResetFlow();
+        active.ResendAt = DateTime.UtcNow.AddSeconds(30);   // still cooling down
+        _uow.Setup(u => u.Repository<PasswordResetRequest>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(active);
+
+        var act = () => CreateSut().ResendOtpAsync(new ResendOtpRequest("user@test.com"));
+
+        await act.Should().ThrowAsync<AppException>().Where(e => e.StatusCode == 429 && e.ErrorCode == "RESEND_COOLDOWN");
+    }
+
+    [Fact]
+    public async Task PasswordReset_Resend_AfterCooldown_InvalidatesPreviousAndCreatesNew()
+    {
+        _uow.Setup(u => u.Repository<User>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ActiveUser);
+        var previous = SetupResetFlow("111111");
+        previous.ResendAt = DateTime.UtcNow.AddSeconds(-1);   // cooldown passed
+        _uow.Setup(u => u.Repository<PasswordResetRequest>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(previous);
+
+        var result = await CreateSut().ResendOtpAsync(new ResendOtpRequest("user@test.com"));
+
+        result.ResetRequestId.Should().NotBeNull();
+        previous.IsUsed.Should().BeTrue();   // old OTP invalidated
+        _uow.Verify(u => u.Repository<PasswordResetRequest>().Add(It.IsAny<PasswordResetRequest>()), Times.Once);
+        _email.Verify(e => e.SendPasswordResetOtpAsync(ActiveUser.Email, "111111", 5, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task PasswordReset_Complete_WithValidToken_UpdatesPasswordAndRevokesSessions()
+    {
         var user = new User
         {
             Id = Guid.NewGuid(),
@@ -246,36 +406,52 @@ public class AuthServiceTests
             PasswordHash = "old-hash",
             Role = "User"
         };
-        _uow.SetupSequence(u => u.Repository<User>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(user)
+        var realOtp = new OtpService();
+        var reset = SetupResetFlow("482731");
+        reset.UserId = user.Id;
+        reset.ResetTokenHash = realOtp.HashOtp("reset-auth-token-xyz");
+        reset.ResetTokenExpiresAt = DateTime.UtcNow.AddMinutes(10);
+        _uow.Setup(u => u.Repository<PasswordResetRequest>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(reset);
+        _uow.Setup(u => u.Repository<User>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(user);
+        var session = new RefreshToken { Id = Guid.NewGuid(), UserId = user.Id, TokenHash = "h", ExpiresAt = DateTime.UtcNow.AddDays(7) };
+        _uow.Setup(u => u.Repository<RefreshToken>().Query()).Returns(new List<RefreshToken> { session }.AsQueryable());
+        _uow.Setup(u => u.Repository<RefreshToken>().Update(It.IsAny<RefreshToken>()));
+        _uow.Setup(u => u.Repository<PasswordResetRequest>().Update(It.IsAny<PasswordResetRequest>()));
         _uow.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>())).Returns(Task.FromResult(1));
         _hasher.Setup(h => h.Hash("NewPassw0rd!")).Returns("new-hash");
 
-        var sut = CreateSut();
-        var issued = await sut.ForgotPasswordAsync(new ForgotPasswordRequest("resetuser@test.com"));
-        issued.ResetToken.Should().NotBeNull();
+        await CreateSut().CompletePasswordResetAsync(new CompleteResetRequest("reset-auth-token-xyz", "NewPassw0rd!"));
 
-        // First reset succeeds
-        var act = () => sut.ResetPasswordAsync(new ResetPasswordRequest("resetuser@test.com", issued.ResetToken!, "NewPassw0rd!"));
-        await act.Should().NotThrowAsync();
         user.PasswordHash.Should().Be("new-hash");
-
-        // Token is single-use: reuse fails
-        var reuse = () => sut.ResetPasswordAsync(new ResetPasswordRequest("resetuser@test.com", issued.ResetToken!, "AnotherPassw0rd!"));
-        await reuse.Should().ThrowAsync<AppException>().Where(e => e.StatusCode == 400);
+        reset.ResetTokenHash.Should().BeNull();            // authorization consumed
+        session.RevokedAt.Should().NotBeNull();            // sessions revoked
     }
 
     [Fact]
-    public async Task ResetPassword_WithWrongCode_ThrowsBadRequest()
+    public async Task PasswordReset_Complete_WithUnknownToken_Rejected()
     {
-        _uow.Setup(u => u.Repository<User>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(ActiveUser);
+        SetupResetFlow("482731");
+        _uow.Setup(u => u.Repository<PasswordResetRequest>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PasswordResetRequest?)null);
 
-        var sut = CreateSut();
-        await sut.ForgotPasswordAsync(new ForgotPasswordRequest("user@test.com"));
+        var act = () => CreateSut().CompletePasswordResetAsync(new CompleteResetRequest("bogus-token", "NewPassw0rd!"));
 
-        var act = () => sut.ResetPasswordAsync(new ResetPasswordRequest("user@test.com", "WRONG-CODE", "NewPassw0rd!"));
+        await act.Should().ThrowAsync<AppException>().Where(e => e.StatusCode == 400 && e.ErrorCode == "INVALID_RESET_TOKEN");
+    }
+
+    [Fact]
+    public async Task PasswordReset_Complete_WithExpiredResetToken_Rejected()
+    {
+        var realOtp = new OtpService();
+        var reset = SetupResetFlow("482731");
+        reset.ResetTokenHash = realOtp.HashOtp("reset-auth-token-xyz");
+        reset.ResetTokenExpiresAt = DateTime.UtcNow.AddMinutes(-1);   // expired
+        _uow.Setup(u => u.Repository<PasswordResetRequest>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<PasswordResetRequest, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(reset);
+
+        var act = () => CreateSut().CompletePasswordResetAsync(new CompleteResetRequest("reset-auth-token-xyz", "NewPassw0rd!"));
 
         await act.Should().ThrowAsync<AppException>().Where(e => e.StatusCode == 400);
     }

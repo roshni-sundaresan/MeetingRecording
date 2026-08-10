@@ -72,31 +72,76 @@ public class AuthController : ApiControllerBase
         return Ok("Logged out.");
     }
 
-    /// <summary>Request a password reset code for an email address.</summary>
-    /// <remarks>
-    /// Dev mode returns the one-time code inline (<c>reset_token</c>, 15 min
-    /// validity) since no SMTP provider is configured. Production should email
-    /// the code and return the message only.
-    /// </remarks>
+    /// <summary>
+    /// Step 1 — request a password reset OTP for a registered username/email.
+    /// Response is deliberately generic (no account enumeration). The OTP is
+    /// emailed; it is never included in the response outside development
+    /// environments (PasswordReset:DevOtpExposure).
+    /// </summary>
     [AllowAnonymous]
-    [HttpPost("forgot-password")]
-    [ProducesResponseType(typeof(ApiResponse<ForgotPasswordResponse>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<ForgotPasswordResponse>>> ForgotPassword([FromBody] ForgotPasswordRequest request, CancellationToken ct)
+    [EnableRateLimiting("reset")]
+    [HttpPost("password-reset/request")]
+    [ProducesResponseType(typeof(ApiResponse<PasswordResetRequestResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status429TooManyRequests)]
+    public async Task<ActionResult<ApiResponse<PasswordResetRequestResponse>>> RequestPasswordReset(
+        [FromBody] PasswordResetRequestRequest request, CancellationToken ct)
     {
         await ValidateAsync(request, ct);
-        var result = await _authService.ForgotPasswordAsync(request, ct);
-        return Envelope(result, "Reset code issued.");
+        var result = await _authService.RequestPasswordResetAsync(request, ct);
+        return Envelope(result, result.Message);
     }
 
-    /// <summary>Complete a password reset with the emailed/returned code.</summary>
+    /// <summary>
+    /// Step 2 — verify the emailed OTP. On success issues a short-lived,
+    /// single-use reset authorization (reset_token) — never a login token.
+    /// The client cannot determine OTP validity; the server is authoritative.
+    /// </summary>
     [AllowAnonymous]
-    [HttpPost("reset-password")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [EnableRateLimiting("reset")]
+    [HttpPost("password-reset/verify-otp")]
+    [ProducesResponseType(typeof(ApiResponse<VerifyOtpResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<object>>> ResetPassword([FromBody] ResetPasswordRequest request, CancellationToken ct)
+    public async Task<ActionResult<ApiResponse<VerifyOtpResponse>>> VerifyOtp(
+        [FromBody] VerifyOtpRequest request, CancellationToken ct)
     {
         await ValidateAsync(request, ct);
-        await _authService.ResetPasswordAsync(request, ct);
-        return Envelope<object>(null!, "Password reset successful.");
+        var result = await _authService.VerifyOtpAsync(request, ct);
+        return Envelope(result, "OTP verified.");
+    }
+
+    /// <summary>
+    /// Step 3 — resend the OTP. Enforces a 60s cooldown per account, invalidates
+    /// the previous OTP and issues a fresh one. Rate-limited per IP.
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting("reset")]
+    [HttpPost("password-reset/resend-otp")]
+    [ProducesResponseType(typeof(ApiResponse<PasswordResetRequestResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status429TooManyRequests)]
+    public async Task<ActionResult<ApiResponse<PasswordResetRequestResponse>>> ResendOtp(
+        [FromBody] ResendOtpRequest request, CancellationToken ct)
+    {
+        await ValidateAsync(request, ct);
+        var result = await _authService.ResendOtpAsync(request, ct);
+        return Envelope(result, result.Message);
+    }
+
+    /// <summary>
+    /// Step 4 — complete the reset with the authorization from verify-otp.
+    /// Validates the token (purpose/expiry/single-use) and the password policy,
+    /// updates the hash, invalidates the authorization + sibling requests and
+    /// revokes all of the user's sessions.
+    /// </summary>
+    [AllowAnonymous]
+    [EnableRateLimiting("reset")]
+    [HttpPost("password-reset/complete")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<object>>> CompletePasswordReset(
+        [FromBody] CompleteResetRequest request, CancellationToken ct)
+    {
+        await ValidateAsync(request, ct);
+        await _authService.CompletePasswordResetAsync(request, ct);
+        return Envelope<object>(null!, "Password reset successful. Please sign in.");
     }
 }

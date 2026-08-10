@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<UploadBatch> UploadBatches => Set<UploadBatch>();
     public DbSet<UploadChunk> UploadChunks => Set<UploadChunk>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<PasswordResetRequest> PasswordResetRequests => Set<PasswordResetRequest>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -124,10 +124,14 @@ All endpoints return the standard envelope:
 | POST | `/api/auth/register` | Create account, returns JWT + refresh token (409 + `errorCode` `EMAIL_TAKEN`/`MOBILE_TAKEN` on conflicts) |
 | POST | `/api/auth/refresh` | Rotate a refresh token → fresh JWT + new refresh token (single-use rotation) |
 | POST | `/api/auth/logout` | Revoke the presented refresh token (idempotent) |
-| POST | `/api/auth/forgot-password` | Issue a reset code (dev mode returns it inline as `reset_token`) |
-| POST | `/api/auth/reset-password` | Complete the reset with the code |
+| POST | `/api/auth/password-reset/request` | Request a 6-digit OTP for `{ "username": "email" }` (5-min expiry; emailed via SMTP; generic response — no account enumeration; `dev_otp` echoed only in Development) |
+| POST | `/api/auth/password-reset/verify-otp` | `{ "reset_request_id", "otp" }` → verifies server-side (max 5 attempts), issues short-lived single-use `reset_token` |
+| POST | `/api/auth/password-reset/resend-otp` | Resend with 60s cooldown (invalidates previous OTP) |
+| POST | `/api/auth/password-reset/complete` | `{ "reset_token", "new_password" }` → validates token + policy, updates hash, revokes all sessions |
 
 Auth responses now include: `token`, `expires_at`, `token_type: "Bearer"`, `refresh_token`, `refresh_expires_at`, `user`.
+
+> **Password reset security model** — the server is the source of truth: OTPs are 6 digits from a cryptographic RNG, stored as SHA-256 hashes (never plaintext, never logged, never in API responses outside dev), expire in 5 minutes, are single-use, bounded to 5 verification attempts, and are invalidated by resends. The reset authorization issued by `verify-otp` is a short-lived (10-min) purpose-bound token that cannot be used to log in. SMTP is configured under `Email:Smtp`; without a host, delivery is skipped with a logged warning (still returns generic success). Configure `PasswordReset:DevOtpExposure` **only** in development.
 
 ### Users (JWT required; list/create are admin-only, others self-or-admin)
 | Method | Route | Description |

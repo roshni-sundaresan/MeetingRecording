@@ -1,10 +1,9 @@
-using System.Collections.Concurrent;
-using System.Security.Cryptography;
 using MeetingRecorder.Application.DTOs;
 using MeetingRecorder.Application.Exceptions;
 using MeetingRecorder.Application.Interfaces;
 using MeetingRecorder.Domain.Constants;
 using MeetingRecorder.Domain.Entities;
+using Microsoft.Extensions.Options;
 
 namespace MeetingRecorder.Application.Services;
 
@@ -14,34 +13,40 @@ public interface IAuthService
     Task<AuthResponse> RegisterAsync(RegisterRequest request, CancellationToken ct = default);
     Task<AuthResponse> RefreshAsync(RefreshTokenRequest request, CancellationToken ct = default);
     Task LogoutAsync(RefreshTokenRequest request, CancellationToken ct = default);
-    Task<ForgotPasswordResponse> ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken ct = default);
-    Task ResetPasswordAsync(ResetPasswordRequest request, CancellationToken ct = default);
-}
 
-internal sealed record ResetEntry(string Token, DateTime ExpiresAt);
+    // ── Password reset (server-authoritative OTP flow) ──
+    Task<PasswordResetRequestResponse> RequestPasswordResetAsync(PasswordResetRequestRequest request, CancellationToken ct = default);
+    Task<VerifyOtpResponse> VerifyOtpAsync(VerifyOtpRequest request, CancellationToken ct = default);
+    Task<PasswordResetRequestResponse> ResendOtpAsync(ResendOtpRequest request, CancellationToken ct = default);
+    Task CompletePasswordResetAsync(CompleteResetRequest request, CancellationToken ct = default);
+}
 
 public class AuthService : IAuthService
 {
+    public const string PurposePasswordReset = "PASSWORD_RESET";
+    private const string GenericRequestMessage = "If the account exists, an OTP has been sent.";
+    private const string GenericInvalidMessage = "Invalid or expired code.";
+
     private readonly IUnitOfWork _uow;
     private readonly ITokenService _tokenService;
     private readonly IPasswordHasher _passwordHasher;
-
-    /// In-memory one-time reset tokens (email → token + expiry).
-    /// Dev stand-in for an emailed link; swap for a DB/email-backed store in
-    /// production. Tokens live 15 minutes and are single-use.
-    private static readonly ConcurrentDictionary<string, ResetEntry> ResetTokens = new();
-    private static readonly TimeSpan ResetTokenLifetime = TimeSpan.FromMinutes(15);
-    private const int ResetTokenLength = 32;
+    private readonly IOtpService _otpService;
+    private readonly IEmailService _emailService;
+    private readonly PasswordResetOptions _resetOptions;
 
     /// Refresh tokens are single-use and rotate on every refresh; lifetime is
     /// 7 days (mirrors Jwt:RefreshExpiryDays in appsettings).
     private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(7);
 
-    public AuthService(IUnitOfWork uow, ITokenService tokenService, IPasswordHasher passwordHasher)
+    public AuthService(IUnitOfWork uow, ITokenService tokenService, IPasswordHasher passwordHasher,
+        IOtpService otpService, IEmailService emailService, IOptions<PasswordResetOptions> resetOptions)
     {
         _uow = uow;
         _tokenService = tokenService;
         _passwordHasher = passwordHasher;
+        _otpService = otpService;
+        _emailService = emailService;
+        _resetOptions = resetOptions.Value;
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken ct = default)
@@ -118,45 +123,194 @@ public class AuthService : IAuthService
         await _uow.SaveChangesAsync(ct);
     }
 
-    public async Task<ForgotPasswordResponse> ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken ct = default)
+    // ─────────────────────────────────────────────────────────────────────────
+    // Password reset — server is the source of truth for OTP generation,
+    // storage, expiry, verification, attempt limits, resend cooldown and the
+    // reset authorization. The client only relays input and displays state.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Step 1 — validate the username, generate a 6-digit OTP (crypto RNG),
+    /// store only its SHA-256 hash (5-minute expiry), email it, and return a
+    /// generic message so account existence is never disclosed. Unknown
+    /// accounts receive the identical generic response (no OTP issued).
+    /// </summary>
+    public async Task<PasswordResetRequestResponse> RequestPasswordResetAsync(
+        PasswordResetRequestRequest request, CancellationToken ct = default)
     {
-        var email = request.Email.ToLowerInvariant().Trim();
+        var username = request.Username.ToLowerInvariant().Trim();
         var user = await _uow.Repository<User>()
-            .FirstOrDefaultAsync(u => u.Email == email && !u.IsDeleted, ct);
+            .FirstOrDefaultAsync(u => u.Email == username && !u.IsDeleted, ct);
 
-        // Always respond success to avoid account enumeration; unknown emails
-        // simply never receive a token.
         if (user is null)
-            return new ForgotPasswordResponse("If that email exists, a reset code was issued.", null, (int)ResetTokenLifetime.TotalMinutes);
+            return new PasswordResetRequestResponse(GenericRequestMessage, null, null);
 
-        var token = RandomNumberGenerator.GetHexString(ResetTokenLength);
-        ResetTokens[email] = new ResetEntry(token, DateTime.UtcNow + ResetTokenLifetime);
-        return new ForgotPasswordResponse(
-            "A password reset code was issued (dev mode: returned inline).",
-            token,
-            (int)ResetTokenLifetime.TotalMinutes);
+        var (resetRequest, otp) = await CreateResetRequestAsync(user, ct);
+        await _emailService.SendPasswordResetOtpAsync(user.Email, otp, _resetOptions.OtpLifetimeMinutes, ct);
+
+        return BuildRequestResponse(GenericRequestMessage, resetRequest, otp);
     }
 
-    public async Task ResetPasswordAsync(ResetPasswordRequest request, CancellationToken ct = default)
+    /// <summary>
+    /// Step 2 — verify the submitted OTP against the stored hash. Enforces
+    /// existence, purpose, expiry, single-use and a maximum attempt count.
+    /// On success the OTP is consumed and a short-lived, single-use reset
+    /// authorization is issued. All failures return the same generic error.
+    /// </summary>
+    public async Task<VerifyOtpResponse> VerifyOtpAsync(VerifyOtpRequest request, CancellationToken ct = default)
     {
-        var email = request.Email.ToLowerInvariant().Trim();
+        if (!Guid.TryParse(request.ResetRequestId, out var requestId))
+            throw new AppException(GenericInvalidMessage, 400, "INVALID_OTP");
 
-        if (!ResetTokens.TryGetValue(email, out var entry) ||
-            entry.Token != request.ResetToken ||
-            entry.ExpiresAt < DateTime.UtcNow)
+        var reset = await _uow.Repository<PasswordResetRequest>()
+            .FirstOrDefaultAsync(r => r.Id == requestId, ct);
+
+        if (reset is null || reset.Purpose != PurposePasswordReset || reset.IsUsed || reset.ExpiresAt < DateTime.UtcNow)
+            throw new AppException(GenericInvalidMessage, 400, "INVALID_OTP");
+
+        // Attempt limit: once reached the request is locked, so brute-forcing
+        // a 6-digit code is bounded to MaxOtpAttempts guesses.
+        if (reset.AttemptCount >= _resetOptions.MaxOtpAttempts)
         {
-            throw new AppException("Invalid or expired reset code.", 400, "INVALID_RESET_CODE");
+            reset.IsUsed = true;
+            _uow.Repository<PasswordResetRequest>().Update(reset);
+            await _uow.SaveChangesAsync(ct);
+            throw new AppException(GenericInvalidMessage, 400, "INVALID_OTP");
+        }
+
+        if (!_otpService.VerifyOtp(request.Otp, reset.OtpHash))
+        {
+            reset.AttemptCount += 1;
+            if (reset.AttemptCount >= _resetOptions.MaxOtpAttempts)
+                reset.IsUsed = true;   // lock after the final allowed attempt
+            _uow.Repository<PasswordResetRequest>().Update(reset);
+            await _uow.SaveChangesAsync(ct);
+            throw new AppException(GenericInvalidMessage, 400, "INVALID_OTP");
+        }
+
+        // Success: consume the OTP and issue the reset authorization.
+        var resetToken = _otpService.GenerateResetToken();
+        reset.IsUsed = true;
+        reset.ResetTokenHash = _otpService.HashOtp(resetToken);   // same SHA-256 primitive
+        reset.ResetTokenExpiresAt = DateTime.UtcNow.AddMinutes(_resetOptions.ResetTokenLifetimeMinutes);
+        _uow.Repository<PasswordResetRequest>().Update(reset);
+        await _uow.SaveChangesAsync(ct);
+
+        return new VerifyOtpResponse(resetToken, reset.ResetTokenExpiresAt.Value);
+    }
+
+    /// <summary>
+    /// Step 3 — resend: enforces a 60s cooldown, invalidates the previous OTP
+    /// and issues a fresh one with a reset expiry. Response is generic for
+    /// unknown accounts (no enumeration).
+    /// </summary>
+    public async Task<PasswordResetRequestResponse> ResendOtpAsync(ResendOtpRequest request, CancellationToken ct = default)
+    {
+        var username = request.Username.ToLowerInvariant().Trim();
+        var user = await _uow.Repository<User>()
+            .FirstOrDefaultAsync(u => u.Email == username && !u.IsDeleted, ct);
+
+        if (user is null)
+            return new PasswordResetRequestResponse(GenericRequestMessage, null, null);
+
+        var now = DateTime.UtcNow;
+        var latest = await _uow.Repository<PasswordResetRequest>()
+            .FirstOrDefaultAsync(r => r.UserId == user.Id && !r.IsUsed && r.Purpose == PurposePasswordReset, ct);
+
+        if (latest is { ResendAt: not null } && latest.ResendAt.Value > now)
+            throw new AppException("Please wait before requesting another code.", 429, "RESEND_COOLDOWN");
+
+        // A new OTP invalidates the previous one (spec requirement).
+        if (latest is not null)
+        {
+            latest.IsUsed = true;
+            _uow.Repository<PasswordResetRequest>().Update(latest);
+        }
+
+        var (resetRequest, otp) = await CreateResetRequestAsync(user, ct);
+        await _emailService.SendPasswordResetOtpAsync(user.Email, otp, _resetOptions.OtpLifetimeMinutes, ct);
+
+        return BuildRequestResponse(GenericRequestMessage, resetRequest, otp);
+    }
+
+    /// <summary>
+    /// Step 4 — complete the reset. Validates the reset authorization
+    /// (purpose, expiry, single-use), applies the authoritative password
+    /// policy, hashes with the app's BCrypt hasher, updates the password,
+    /// consumes the authorization, invalidates sibling reset requests and
+    /// revokes all of the user's sessions (refresh tokens).
+    /// </summary>
+    public async Task CompletePasswordResetAsync(CompleteResetRequest request, CancellationToken ct = default)
+    {
+        var tokenHash = _otpService.HashOtp(request.ResetToken);
+        var reset = await _uow.Repository<PasswordResetRequest>()
+            .FirstOrDefaultAsync(r => r.ResetTokenHash == tokenHash, ct);
+
+        if (reset is null || reset.Purpose != PurposePasswordReset
+            || reset.ResetTokenExpiresAt is null || reset.ResetTokenExpiresAt < DateTime.UtcNow)
+        {
+            throw new AppException("Invalid or expired reset token.", 400, "INVALID_RESET_TOKEN");
         }
 
         var user = await _uow.Repository<User>()
-            .FirstOrDefaultAsync(u => u.Email == email && !u.IsDeleted, ct);
+            .FirstOrDefaultAsync(u => u.Id == reset.UserId && !u.IsDeleted, ct);
         if (user is null)
-            throw new AppException("Invalid or expired reset code.", 400, "INVALID_RESET_CODE");
+            throw new AppException("Invalid or expired reset token.", 400, "INVALID_RESET_TOKEN");
 
         user.PasswordHash = _passwordHasher.Hash(request.NewPassword);
+        _uow.Repository<User>().Update(user);
+
+        // Consume the authorization (clearing the hash makes reuse impossible).
+        reset.ResetTokenHash = null;
+        reset.ResetTokenExpiresAt = null;
+
+        // Invalidate any other outstanding reset requests for this user.
+        var siblings = _uow.Repository<PasswordResetRequest>().Query()
+            .Where(r => r.UserId == user.Id && !r.IsUsed).ToList();
+        foreach (var sibling in siblings)
+        {
+            sibling.IsUsed = true;
+            _uow.Repository<PasswordResetRequest>().Update(sibling);
+        }
+
+        // Security model: revoke every session on password change.
+        var sessions = _uow.Repository<RefreshToken>().Query()
+            .Where(t => t.UserId == user.Id && t.RevokedAt == null).ToList();
+        foreach (var session in sessions)
+        {
+            session.RevokedAt = DateTime.UtcNow;
+            _uow.Repository<RefreshToken>().Update(session);
+        }
+
         await _uow.SaveChangesAsync(ct);
-        ResetTokens.TryRemove(email, out _);
     }
+
+    // ── private helpers ──────────────────────────────────────────────────────
+
+    private async Task<(PasswordResetRequest Request, string Otp)> CreateResetRequestAsync(User user, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var otp = _otpService.GenerateOtp();
+
+        var reset = new PasswordResetRequest
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            OtpHash = _otpService.HashOtp(otp),
+            Purpose = PurposePasswordReset,
+            CreatedAt = now,
+            ExpiresAt = now.AddMinutes(_resetOptions.OtpLifetimeMinutes),
+            ResendAt = now.AddSeconds(_resetOptions.ResendCooldownSeconds)
+        };
+
+        _uow.Repository<PasswordResetRequest>().Add(reset);
+        await _uow.SaveChangesAsync(ct);
+        return (reset, otp);
+    }
+
+    private PasswordResetRequestResponse BuildRequestResponse(string message, PasswordResetRequest reset, string otp)
+        => new(message, reset.Id, reset.ExpiresAt,
+            _resetOptions.DevOtpExposure ? otp : null);
 
     private async Task<RefreshToken?> FindActiveRefreshTokenAsync(string token, CancellationToken ct)
     {
