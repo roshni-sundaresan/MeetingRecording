@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 using Serilog;
 
@@ -187,6 +188,16 @@ try
         {
             await DbSeeder.SeedAsync(db, logger, CancellationToken.None);
         }
+    }
+
+    // ---------- Ops visibility: fail loud when email delivery is unconfigured ----------
+    var smtp = app.Services.GetRequiredService<IOptions<SmtpOptions>>().Value;
+    if (string.IsNullOrWhiteSpace(smtp.Host))
+    {
+        app.Logger.LogWarning(
+            "SMTP is NOT configured (Email:Smtp:Host empty). Password-reset OTP emails will be SKIPPED — " +
+            "the request endpoint returns generic success by design, so users will never receive a code. " +
+            "Set Email__Smtp__* environment variables and restart (see docs/deploy.md).");
     }
 
     // ---------- Pipeline ----------
