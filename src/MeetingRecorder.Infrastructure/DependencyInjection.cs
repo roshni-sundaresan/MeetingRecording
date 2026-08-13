@@ -13,27 +13,15 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        var provider = configuration.GetValue<string>("Database:Provider") ?? "SqlServer";
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured.");
 
         services.AddDbContext<AppDbContext>(options =>
-        {
-            if (provider.Equals("Sqlite", StringComparison.OrdinalIgnoreCase)
-                || connectionString.Contains(".db", StringComparison.OrdinalIgnoreCase)
-                || connectionString.Contains("Data Source=", StringComparison.OrdinalIgnoreCase))
+            options.UseSqlServer(connectionString, sql =>
             {
-                options.UseSqlite(connectionString);
-            }
-            else
-            {
-                options.UseSqlServer(connectionString, sql =>
-                {
-                    sql.EnableRetryOnFailure(5, TimeSpan.FromSeconds(10), null);
-                    sql.MigrationsAssembly(typeof(DependencyInjection).Assembly.FullName);
-                });
-            }
-        });
+                sql.EnableRetryOnFailure(5, TimeSpan.FromSeconds(10), null);
+                sql.MigrationsAssembly(typeof(DependencyInjection).Assembly.FullName);
+            }));
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.Configure<StorageOptions>(configuration.GetSection(StorageOptions.SectionName));

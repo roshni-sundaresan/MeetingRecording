@@ -24,42 +24,6 @@ public class SmtpOptions
     public string Password { get; set; } = string.Empty;
     public string From { get; set; } = "no-reply@meetingrecorder.dev";
     public bool UseSsl { get; set; } = true;
-
-    public string SmtpServer
-    {
-        get => Host;
-        set { if (!string.IsNullOrWhiteSpace(value)) Host = value; }
-    }
-
-    public string SmtpUser
-    {
-        get => Username;
-        set => Username = value;
-    }
-
-    public string SmtpPwd
-    {
-        get => Password;
-        set => Password = value;
-    }
-
-    public string SmtpPort
-    {
-        get => Port.ToString();
-        set
-        {
-            if (int.TryParse(value, out var p))
-            {
-                Port = p;
-            }
-        }
-    }
-
-    public string Sender
-    {
-        get => From;
-        set { if (!string.IsNullOrWhiteSpace(value)) From = value; }
-    }
 }
 
 public class SmtpEmailService : IEmailService
