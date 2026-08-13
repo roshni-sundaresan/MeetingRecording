@@ -181,7 +181,14 @@ Chunks are stored under `uploads/chunks/{batchId}/` and merged files under `uplo
 - **SQL injection** — EF Core parameterizes all queries; sorting uses a **whitelist** of allowed columns (no user input reaches expressions); no raw SQL.
 - **XSS** — input length limits + regex validation on all free-text fields; API returns JSON only (client-side rendering must escape content).
 - **Rate limiting** — 300 req/min per IP globally, 60 req/min on upload endpoints, **20 req/min on auth endpoints** (login/register/refresh), HTTP 429 + JSON envelope on rejection.
-- **HTTPS** — `UseHttpsRedirection` (dev certs: `dotnet dev-certs https --trust`); disabled inside the container where the load balancer terminates TLS.
+- **HTTPS** — `UseHttpsRedirection` (dev certs: `dotnet dev-certs https --trust`); deployed behind nginx TLS (Sectigo DV R36 — **server must send the full chain, including the intermediate**, or iOS/Android clients cannot build the trust path).
+- **nginx `client_max_body_size` (deployment requirement)** — the app uploads 4 MB chunks and the API accepts up to 60 MB per chunk, but nginx defaults to 1 MB and answers `413 Request Entity Too Large` for anything larger. The reverse proxy must set, in the site's `server` block (or a `location /api/Upload/` block):
+
+  ```nginx
+  client_max_body_size 10m;   # ≥ app chunk size (4 MB); use 65m to allow the API's full 60 MB cap
+  ```
+
+  then `nginx -t && systemctl reload nginx` (or `nginx -s reload`). Symptoms if missing: `POST /api/Upload/chunk` → `413` from `nginx/1.18.0` for any chunk > 1 MB.
 - **CORS** — allow-list from `Cors:AllowedOrigins`; only configured origins can call the API.
 - **Global exception middleware** — every error becomes the standard envelope (error envelopes use camelCase: `statusCode`/`errorCode`); internal details are never leaked (500s log full stack to Serilog).
 - **Structured error codes** — `EMAIL_TAKEN`, `MOBILE_TAKEN`, `VALIDATION_ERROR`, `INVALID_REFRESH_TOKEN`, `INVALID_RESET_CODE`, `CHECKSUM_MISMATCH`, `UPLOAD_ALREADY_COMPLETED` surface as `errorCode` on error envelopes.
