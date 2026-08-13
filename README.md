@@ -132,8 +132,6 @@ All endpoints return the standard envelope:
 Auth responses now include: `token`, `expires_at`, `token_type: "Bearer"`, `refresh_token`, `refresh_expires_at`, `user`.
 
 > **Password reset security model** — the server is the source of truth: OTPs are 6 digits from a cryptographic RNG, stored as SHA-256 hashes (never plaintext, never logged, never in API responses outside dev), expire in 5 minutes, are single-use, bounded to 5 verification attempts, and are invalidated by resends. The reset authorization issued by `verify-otp` is a short-lived (10-min) purpose-bound token that cannot be used to log in. SMTP is configured under `Email:Smtp`; without a host, delivery is skipped with a logged warning (still returns generic success). Configure `PasswordReset:DevOtpExposure` **only** in development.
->
-> ⚠️ **Deploying?** OTP emails are only delivered when `Email:Smtp` is configured. The API logs a startup warning when it isn't. Set `Email__Smtp__*` environment variables (host/port/user/password/from) — full guide + verification checklist in **[docs/deploy.md](docs/deploy.md)**.
 
 ### Users (JWT required; list/create are admin-only, others self-or-admin)
 | Method | Route | Description |
