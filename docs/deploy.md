@@ -23,38 +23,6 @@ export Email__Smtp__From="no-reply@yourdomain.com"
 export Email__Smtp__UseSsl="true"                # false for port 25 / internal relays
 ```
 
-### Approved production relay (Idealake, 2026-08-13)
-
-Also present in `src/MeetingRecorder.WebApi/appsettings.json`:
-
-| Setting | Value |
-|---|---|
-| `Email__Smtp__Host` | `192.168.0.43` |
-| `Email__Smtp__Port` | `25` |
-| `Email__Smtp__Username` | `sendmail@idealake.com` |
-| `Email__Smtp__Password` | *(empty — open relay, no auth)* |
-| `Email__Smtp__From` | `sendmail@idealake.com` |
-| `Email__Smtp__UseSsl` | `false` |
-
-**Restart handoff (run on the deployed server, then restart the service):**
-
-```bash
-# systemd: add Environment= lines, then:
-sudo systemctl edit <service-name>        # or edit the unit file
-sudo systemctl daemon-reload
-sudo systemctl restart <service-name>
-
-# manual process:
-export Email__Smtp__Host="192.168.0.43" Email__Smtp__Port="25" \
-       Email__Smtp__Username="sendmail@idealake.com" Email__Smtp__Password="" \
-       Email__Smtp__From="sendmail@idealake.com" Email__Smtp__UseSsl="false"
-dotnet /path/to/MeetingRecorder.WebApi.dll
-```
-
-After restart, verify:
-- startup log has **no** `SMTP is NOT configured` warning
-- the OTP email is sent (log: `Password-reset OTP email sent to ...`)
-
 Also verify (production defaults are already safe):
 
 ```bash
