@@ -10,6 +10,7 @@ using MeetingRecorder.Infrastructure.Security;
 using MeetingRecorder.WebApi.Middleware;
 using MeetingRecorder.WebApi.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -190,6 +191,15 @@ try
     }
 
     // ---------- Pipeline ----------
+    // Behind nginx TLS termination: honor X-Forwarded-Proto / X-Forwarded-For
+    // so generated URLs (signed stream URLs from /play) use https and rate
+    // limiting sees the real client IP instead of the proxy.
+    // NOTE: runs before any middleware that reads scheme/IP. Restrict to the
+    // reverse proxy (KnownProxies) if the API is exposed beyond a single proxy.
+    app.UseForwardedHeaders(new ForwardedHeadersOptions
+    {
+        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+    });
     app.UseMiddleware<GlobalExceptionMiddleware>();
     app.UseRateLimiter();
     app.UseCors("AllowApp");
