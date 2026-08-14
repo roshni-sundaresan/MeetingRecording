@@ -42,6 +42,7 @@ public class GlobalExceptionMiddleware
             AppException ae => (ae.StatusCode, ae.Message, null),
             FluentValidation.ValidationException fve => (400, "One or more validation errors occurred.",
                 fve.Errors.Select(e => $"{e.PropertyName}: {e.ErrorMessage}").ToArray()),
+            ObjectDisposedException or OperationCanceledException => (400, "The request was aborted or canceled by the client or proxy.", null),
             _ => (500, "An unexpected error occurred. Please try again later.", null)
         };
 

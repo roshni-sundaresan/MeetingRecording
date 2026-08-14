@@ -76,68 +76,88 @@ public class BatchUploadService : IBatchUploadService
 
     public async Task<UploadStatusResponse> UploadChunkAsync(UploadChunkRequest request, Stream chunkContent, CancellationToken ct = default)
     {
-        var batch = await GetActiveBatchAsync(request.BatchId, request.UserId, ct);
-
-        if (request.TotalChunks != batch.TotalChunks)
-            throw new AppException($"TotalChunks ({request.TotalChunks}) does not match the batch ({batch.TotalChunks}).");
-
-        if (request.ChunkNumber < 1 || request.ChunkNumber > batch.TotalChunks)
-            throw new AppException($"ChunkNumber must be between 1 and {batch.TotalChunks}.");
-
-        if (chunkContent.Length <= 0)
-            throw new AppException("Chunk payload is empty.");
-
-        if (chunkContent.Length > MaxChunkSizeBytes)
-            throw new AppException($"Chunk must not exceed {MaxChunkSizeBytes / (1024 * 1024)} MB.", 400, "VALIDATION_ERROR");
-
-        // Buffer the chunk so the declared checksum can be verified before it
-        // is written to storage.
-        await using var buffer = new MemoryStream();
-        await chunkContent.CopyToAsync(buffer, ct);
-        if (buffer.Length <= 0)
-            throw new AppException("Chunk payload is empty.");
-
-        if (!string.IsNullOrWhiteSpace(request.ChecksumSha256))
+        var gate = BatchLocks.GetOrAdd(request.BatchId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
         {
-            var actual = Convert.ToHexString(SHA256.HashData(buffer.ToArray())).ToLowerInvariant();
-            if (!actual.Equals(request.ChecksumSha256.Trim().ToLowerInvariant(), StringComparison.Ordinal))
-                throw new AppException("Chunk checksum mismatch (sha256).", 400, "CHECKSUM_MISMATCH");
-        }
+            var batch = await GetActiveBatchAsync(request.BatchId, request.UserId, ct);
 
-        buffer.Position = 0;   // always rewind before handing to storage
-        await _chunkStorage.SaveChunkAsync(batch.Id, request.ChunkNumber, buffer, ct);
+            if (request.TotalChunks != batch.TotalChunks)
+                throw new AppException($"TotalChunks ({request.TotalChunks}) does not match the batch ({batch.TotalChunks}).");
 
-        // Upsert the chunk registry row (retries simply overwrite the same row).
-        var repo = _uow.Repository<UploadChunk>();
-        var existing = await repo.FirstOrDefaultAsync(c => c.UploadBatchId == batch.Id && c.ChunkNumber == request.ChunkNumber, ct);
-        var bytesDelta = chunkContent.Length - (existing?.SizeBytes ?? 0);
-        if (existing is null)
-        {
-            repo.Add(new UploadChunk
+            if (request.ChunkNumber < 1 || request.ChunkNumber > batch.TotalChunks)
+                throw new AppException($"ChunkNumber must be between 1 and {batch.TotalChunks}.");
+
+            // Buffer the chunk stream safely so we don't depend on non-seekable stream length
+            await using var buffer = new MemoryStream();
+            try
             {
-                UploadBatchId = batch.Id,
-                ChunkNumber = request.ChunkNumber,
-                SizeBytes = chunkContent.Length,
-                UploadedAt = request.UploadedAt ?? DateTime.UtcNow
-            });
+                await chunkContent.CopyToAsync(buffer, ct);
+            }
+            catch (Exception ex) when (ex is ObjectDisposedException or OperationCanceledException)
+            {
+                throw new AppException("The upload stream was aborted or canceled by the client or proxy.", 400, "UPLOAD_CANCELED");
+            }
+
+            if (buffer.Length <= 0)
+                throw new AppException("Chunk payload is empty.");
+
+            if (buffer.Length > MaxChunkSizeBytes)
+                throw new AppException($"Chunk must not exceed {MaxChunkSizeBytes / (1024 * 1024)} MB.", 400, "VALIDATION_ERROR");
+
+            if (!string.IsNullOrWhiteSpace(request.ChecksumSha256))
+            {
+                var actual = Convert.ToHexString(SHA256.HashData(buffer.ToArray())).ToLowerInvariant();
+                if (!actual.Equals(request.ChecksumSha256.Trim().ToLowerInvariant(), StringComparison.Ordinal))
+                    throw new AppException("Chunk checksum mismatch (sha256).", 400, "CHECKSUM_MISMATCH");
+            }
+
+            buffer.Position = 0;   // always rewind before handing to storage
+            try
+            {
+                await _chunkStorage.SaveChunkAsync(batch.Id, request.ChunkNumber, buffer, ct);
+            }
+            catch (Exception ex) when (ex is ObjectDisposedException or OperationCanceledException)
+            {
+                throw new AppException("The upload storage write was aborted or canceled.", 400, "UPLOAD_CANCELED");
+            }
+
+            // Upsert the chunk registry row (retries simply overwrite the same row).
+            var repo = _uow.Repository<UploadChunk>();
+            var existing = await repo.FirstOrDefaultAsync(c => c.UploadBatchId == batch.Id && c.ChunkNumber == request.ChunkNumber, ct);
+            var bytesDelta = buffer.Length - (existing?.SizeBytes ?? 0);
+            if (existing is null)
+            {
+                repo.Add(new UploadChunk
+                {
+                    UploadBatchId = batch.Id,
+                    ChunkNumber = request.ChunkNumber,
+                    SizeBytes = buffer.Length,
+                    UploadedAt = request.UploadedAt ?? DateTime.UtcNow
+                });
+            }
+            else
+            {
+                existing.SizeBytes = buffer.Length;
+                existing.UploadedAt = request.UploadedAt ?? DateTime.UtcNow;
+                repo.Update(existing);
+            }
+
+            // Chunk metadata (summary/transcript/actions/notes) — keep the latest values on the batch.
+            batch.Summary = request.Summary ?? batch.Summary;
+            batch.Transcript = request.Transcript ?? batch.Transcript;
+            batch.Actions = request.Actions ?? batch.Actions;
+            batch.Notes = request.Notes ?? batch.Notes;
+            batch.TotalBytesReceived += bytesDelta;
+            _uow.Repository<UploadBatch>().Update(batch);
+
+            await _uow.SaveChangesAsync(ct);
+            return await GetUploadStatusAsync(batch.Id, request.UserId, ct);
         }
-        else
+        finally
         {
-            existing.SizeBytes = chunkContent.Length;
-            existing.UploadedAt = request.UploadedAt ?? DateTime.UtcNow;
-            repo.Update(existing);
+            gate.Release();
         }
-
-        // Chunk metadata (summary/transcript/actions/notes) — keep the latest values on the batch.
-        batch.Summary = request.Summary ?? batch.Summary;
-        batch.Transcript = request.Transcript ?? batch.Transcript;
-        batch.Actions = request.Actions ?? batch.Actions;
-        batch.Notes = request.Notes ?? batch.Notes;
-        batch.TotalBytesReceived += bytesDelta;
-        _uow.Repository<UploadBatch>().Update(batch);
-
-        await _uow.SaveChangesAsync(ct);
-        return await GetUploadStatusAsync(batch.Id, request.UserId, ct);
     }
 
     public async Task<UploadStatusResponse> GetUploadStatusAsync(Guid batchId, Guid? requesterUserId, CancellationToken ct = default)
@@ -162,24 +182,33 @@ public class BatchUploadService : IBatchUploadService
 
     public async Task<UploadStatusResponse> RetryChunkAsync(Guid batchId, int chunkNumber, Guid? requesterUserId, CancellationToken ct = default)
     {
-        var batch = await _uow.Repository<UploadBatch>().FirstOrDefaultAsync(b => b.Id == batchId, ct)
-            ?? throw new NotFoundException(nameof(UploadBatch), batchId);
-
-        EnsureBatchOwnership(batch, requesterUserId);
-
-        if (chunkNumber < 1 || chunkNumber > batch.TotalChunks)
-            throw new AppException($"ChunkNumber must be between 1 and {batch.TotalChunks}.");
-
-        // Drop the failed/missing chunk so the client can re-upload it via POST /upload/chunk.
-        var chunkRepo = _uow.Repository<UploadChunk>();
-        var existing = await chunkRepo.FirstOrDefaultAsync(c => c.UploadBatchId == batchId && c.ChunkNumber == chunkNumber, ct);
-        if (existing is not null)
+        var gate = BatchLocks.GetOrAdd(batchId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
         {
-            chunkRepo.Remove(existing);
-            await _uow.SaveChangesAsync(ct);
-        }
+            var batch = await _uow.Repository<UploadBatch>().FirstOrDefaultAsync(b => b.Id == batchId, ct)
+                ?? throw new NotFoundException(nameof(UploadBatch), batchId);
 
-        return await GetUploadStatusAsync(batchId, requesterUserId, ct);
+            EnsureBatchOwnership(batch, requesterUserId);
+
+            if (chunkNumber < 1 || chunkNumber > batch.TotalChunks)
+                throw new AppException($"ChunkNumber must be between 1 and {batch.TotalChunks}.");
+
+            // Drop the failed/missing chunk so the client can re-upload it via POST /upload/chunk.
+            var chunkRepo = _uow.Repository<UploadChunk>();
+            var existing = await chunkRepo.FirstOrDefaultAsync(c => c.UploadBatchId == batchId && c.ChunkNumber == chunkNumber, ct);
+            if (existing is not null)
+            {
+                chunkRepo.Remove(existing);
+                await _uow.SaveChangesAsync(ct);
+            }
+
+            return await GetUploadStatusAsync(batchId, requesterUserId, ct);
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     public async Task<RecordingResponse> CompleteUploadAsync(Guid batchId, Guid? requesterUserId, CancellationToken ct = default)

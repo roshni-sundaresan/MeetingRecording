@@ -45,8 +45,16 @@ public class UploadController : ApiControllerBase
         if (file is null || file.Length == 0)
             return BadRequest(ApiResponseFactory.Fail("A non-empty file chunk is required.", 400));
 
-        if (!CurrentUser.IsAdmin && CurrentUser.UserId != request.UserId)
-            return StatusCode(403, ApiResponseFactory.Fail("You do not have permission to upload for this user.", 403));
+        if (!CurrentUser.IsAdmin)
+        {
+            if (CurrentUser.UserId is null)
+                return StatusCode(401, ApiResponseFactory.Fail("User is not authenticated.", 401));
+
+            if (request.UserId == Guid.Empty)
+                request = request with { UserId = CurrentUser.UserId.Value };
+            else if (CurrentUser.UserId != request.UserId)
+                return StatusCode(403, ApiResponseFactory.Fail("You do not have permission to upload for this user.", 403));
+        }
 
         await ValidateAsync(request, ct);
         await using var stream = file.OpenReadStream();
