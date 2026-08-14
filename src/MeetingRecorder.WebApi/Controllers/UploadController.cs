@@ -38,7 +38,7 @@ public class UploadController : ApiControllerBase
     /// re-sending the same chunkNumber overwrites it (this is also the retry mechanism).
     /// </summary>
     [HttpPost("chunk")]
-    [RequestSizeLimit(60L * 1024 * 1024)]   // 60 MB per chunk
+    [RequestSizeLimit(500L * 1024 * 1024)]   // 500 MB per chunk
     public async Task<ActionResult<ApiResponse<UploadStatusResponse>>> UploadChunk(
         [FromForm] UploadChunkRequest request, IFormFile file, CancellationToken ct)
     {

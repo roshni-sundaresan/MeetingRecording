@@ -31,10 +31,17 @@ try
         .ReadFrom.Services(services)
         .Enrich.FromLogContext());
 
-    // ---------- Kestrel: allow large chunked uploads ----------
+    // ---------- Kestrel + Form limits: allow large chunked uploads (up to 500 MB per chunk, 10 GB total) ----------
     builder.WebHost.ConfigureKestrel(options =>
     {
-        options.Limits.MaxRequestBodySize = 2L * 1024 * 1024 * 1024;   // 2 GB
+        options.Limits.MaxRequestBodySize = 10L * 1024 * 1024 * 1024;   // 10 GB
+    });
+
+    builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+    {
+        options.MultipartBodyLengthLimit = 500L * 1024 * 1024;   // 500 MB per chunk
+        options.ValueLengthLimit = int.MaxValue;
+        options.MultipartHeadersLengthLimit = int.MaxValue;
     });
 
     // ---------- Controllers + JSON (snake_case + string enums to match the Flutter app) ----------

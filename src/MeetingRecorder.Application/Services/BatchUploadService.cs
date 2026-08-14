@@ -24,8 +24,8 @@ public class BatchUploadService : IBatchUploadService
     private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> BatchLocks = new();
 
     public const int MaxChunksPerBatch = 512;
-    public const long MaxFileSizeBytes = 2L * 1024 * 1024 * 1024;          // 2 GB declared total
-    public const long MaxChunkSizeBytes = 60L * 1024 * 1024;               // 60 MB per chunk
+    public const long MaxFileSizeBytes = 10L * 1024 * 1024 * 1024;         // 10 GB declared total
+    public const long MaxChunkSizeBytes = 500L * 1024 * 1024;              // 500 MB per chunk
 
     private readonly IUnitOfWork _uow;
     private readonly IChunkStorageService _chunkStorage;
