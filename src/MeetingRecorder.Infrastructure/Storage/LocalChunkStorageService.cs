@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using MeetingRecorder.Application.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -22,6 +23,7 @@ public class StorageOptions
 /// </summary>
 public class LocalChunkStorageService : IChunkStorageService
 {
+    private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> ChunkLocks = new();
     private readonly StorageOptions _options;
     private readonly ILogger<LocalChunkStorageService> _logger;
 
@@ -34,14 +36,23 @@ public class LocalChunkStorageService : IChunkStorageService
     private string BatchDir(Guid batchId) => Path.Combine(_options.ChunkDirectory, batchId.ToString("N"));
     private string ChunkPath(Guid batchId, int chunkNumber) => Path.Combine(BatchDir(batchId), $"chunk_{chunkNumber:D6}.part");
 
-    public Task SaveChunkAsync(Guid batchId, int chunkNumber, Stream content, CancellationToken ct = default)
+    public async Task SaveChunkAsync(Guid batchId, int chunkNumber, Stream content, CancellationToken ct = default)
     {
-        var dir = BatchDir(batchId);
-        Directory.CreateDirectory(dir);
+        var gate = ChunkLocks.GetOrAdd(batchId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
+        {
+            var dir = BatchDir(batchId);
+            Directory.CreateDirectory(dir);
 
-        var path = ChunkPath(batchId, chunkNumber);
-        using var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
-        return content.CopyToAsync(file, ct);
+            var path = ChunkPath(batchId, chunkNumber);
+            await using var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+            await content.CopyToAsync(file, ct);
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     public Task<bool> ChunkExistsAsync(Guid batchId, int chunkNumber, CancellationToken ct = default)
@@ -87,6 +98,10 @@ public class LocalChunkStorageService : IChunkStorageService
         {
             Directory.Delete(dir, recursive: true);
             _logger.LogInformation("Deleted temporary chunk directory {Dir}", dir);
+        }
+        if (ChunkLocks.TryRemove(batchId, out var semaphore))
+        {
+            semaphore.Dispose();
         }
         return Task.CompletedTask;
     }
