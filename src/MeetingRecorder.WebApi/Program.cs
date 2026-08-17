@@ -113,14 +113,14 @@ try
                     QueueLimit = 0
                 }));
 
-        // Stricter policy for upload endpoints: 60 requests/minute per IP
+        // Policy for upload endpoints: allows high-frequency chunked uploads (600 requests/minute per IP)
         options.AddPolicy("upload", ctx => RateLimitPartition.GetFixedWindowLimiter(
             ctx.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
             _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 60,
+                PermitLimit = 600,
                 Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0
+                QueueLimit = 30
             }));
 
         // Auth endpoints (login/register/refresh/logout): 20 requests/minute
