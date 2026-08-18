@@ -58,10 +58,8 @@ public class SarvamApiService : ISarvamApiService
         streamContent.Headers.ContentType = new MediaTypeHeaderValue(GetContentType(filePath));
 
         content.Add(streamContent, "file", Path.GetFileName(filePath));
-        content.Add(new StringContent(_options.SttModel), "model");
-        content.Add(new StringContent(languageCode ?? _options.LanguageCode), "language_code");
-        content.Add(new StringContent("true"), "with_diarization");
-        content.Add(new StringContent("true"), "with_timestamps");
+        content.Add(new StringContent(string.IsNullOrWhiteSpace(_options.SttModel) ? "saaras:v3" : _options.SttModel), "model");
+        content.Add(new StringContent(string.IsNullOrWhiteSpace(languageCode) ? _options.LanguageCode : languageCode), "language_code");
 
         request.Content = content;
 

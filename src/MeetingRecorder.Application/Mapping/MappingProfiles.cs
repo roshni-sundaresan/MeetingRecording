@@ -20,12 +20,29 @@ public static class StructuredContent
     public static IReadOnlyList<T> FromJson<T>(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) return [];
+        var trimmed = json.Trim();
         try
         {
-            return JsonSerializer.Deserialize<List<T>>(json, Options) ?? [];
+            if (trimmed.StartsWith("[") && trimmed.EndsWith("]"))
+            {
+                return JsonSerializer.Deserialize<List<T>>(trimmed, Options) ?? [];
+            }
+
+            if (typeof(T) == typeof(DTOs.TranscriptLineDto))
+            {
+                var line = new DTOs.TranscriptLineDto("Speaker 1", trimmed.Trim('"'), 0, 0, null);
+                return (IReadOnlyList<T>)(object)new List<DTOs.TranscriptLineDto> { line };
+            }
+
+            return JsonSerializer.Deserialize<List<T>>(trimmed, Options) ?? [];
         }
         catch (JsonException)
         {
+            if (typeof(T) == typeof(DTOs.TranscriptLineDto))
+            {
+                var line = new DTOs.TranscriptLineDto("Speaker 1", trimmed.Trim('"'), 0, 0, null);
+                return (IReadOnlyList<T>)(object)new List<DTOs.TranscriptLineDto> { line };
+            }
             return [];
         }
     }
