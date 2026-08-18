@@ -44,11 +44,23 @@ public record CreateUserRequest(string Email, string Name, string Mobile, string
 public record UpdateUserRequest(string Name, string Mobile, string? ProfilePhotoUrl);
 
 // ---------- Structured content blocks (match the Flutter app's models) ----------
-public record TranscriptLineDto(string Speaker, string Text, int? TimestampSeconds);
+public record TranscriptLineDto(
+    string Speaker,
+    string Text,
+    int? TimestampSeconds = null,
+    int? StartSeconds = null,
+    int? EndSeconds = null);
 
 public record ActionItemDto(string Text, bool Done);
 
 public record RecordingNoteDto(string? Id, int StartSeconds, int EndSeconds, string Text, string? ClipPath);
+
+// ---------- Sarvam AI TTS & STT ----------
+public record SynthesizeTtsRequest(string Text, string? LanguageCode = null);
+
+public record SynthesizeTtsResponse(string AudioBase64);
+
+public record TranscribeAudioRequest(Guid? RecordingId = null, string? FilePath = null, string? LanguageCode = null);
 
 // ---------- Recordings ----------
 public record CreateRecordingRequest(Guid UserId, string Title, RecordingType Type, DateTime? CreatedAt,

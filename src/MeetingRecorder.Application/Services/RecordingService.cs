@@ -25,11 +25,13 @@ public class RecordingService : IRecordingService
 {
     private readonly IUnitOfWork _uow;
     private readonly IMapper _mapper;
+    private readonly ISarvamApiService? _sarvamApiService;
 
-    public RecordingService(IUnitOfWork uow, IMapper mapper)
+    public RecordingService(IUnitOfWork uow, IMapper mapper, ISarvamApiService? sarvamApiService = null)
     {
         _uow = uow;
         _mapper = mapper;
+        _sarvamApiService = sarvamApiService;
     }
 
     public Task<PagedResult<RecordingResponse>> GetRecordingsAsync(Guid? userId, QueryParameters query, CancellationToken ct = default)
@@ -80,8 +82,40 @@ public class RecordingService : IRecordingService
 
     public async Task<RecordingResponse> GetRecordingAsync(Guid id, CancellationToken ct = default)
     {
-        var rec = await _uow.Repository<Recording>().FirstOrDefaultAsync(r => r.Id == id && !r.IsDeleted, ct);
-        return _mapper.Map<RecordingResponse>(rec ?? throw new NotFoundException(nameof(Recording), id));
+        var rec = await _uow.Repository<Recording>().FirstOrDefaultAsync(r => r.Id == id && !r.IsDeleted, ct)
+            ?? throw new NotFoundException(nameof(Recording), id);
+
+        if (string.IsNullOrWhiteSpace(rec.Transcript) && _sarvamApiService is not null && !string.IsNullOrWhiteSpace(rec.FilePath) && File.Exists(rec.FilePath))
+        {
+            try
+            {
+                var lines = await _sarvamApiService.TranscribeAudioAsync(rec.FilePath, rec.SourceLanguageCode, ct);
+                if (lines.Count > 0)
+                {
+                    rec.Transcript = StructuredContent.ToJson(lines);
+                    rec.TranscriptionStatus = TranscriptionStatus.Completed;
+
+                    if (string.IsNullOrWhiteSpace(rec.Summary))
+                    {
+                        var fullText = string.Join(" ", lines.Select(l => l.Text)).Trim();
+                        if (fullText.Length > 0)
+                        {
+                            rec.Summary = fullText.Length > 250 ? fullText.Substring(0, 247) + "..." : fullText;
+                        }
+                    }
+
+                    rec.UpdatedDate = DateTime.UtcNow;
+                    _uow.Repository<Recording>().Update(rec);
+                    await _uow.SaveChangesAsync(ct);
+                }
+            }
+            catch
+            {
+                // Soft failure fallback: log/ignore so endpoint still returns existing metadata
+            }
+        }
+
+        return _mapper.Map<RecordingResponse>(rec);
     }
 
     /// <summary>

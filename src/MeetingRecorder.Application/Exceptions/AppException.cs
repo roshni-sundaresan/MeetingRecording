@@ -8,7 +8,7 @@ public class AppException : Exception
     /// <summary>Stable machine-readable code (e.g. EMAIL_TAKEN) surfaced on the API envelope.</summary>
     public string? ErrorCode { get; }
 
-    public AppException(string message, int statusCode = 400, string? errorCode = null) : base(message)
+    public AppException(string message, int statusCode = 400, string? errorCode = null, Exception? innerException = null) : base(message, innerException)
     {
         StatusCode = statusCode;
         ErrorCode = errorCode;

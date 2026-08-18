@@ -30,12 +30,14 @@ public class BatchUploadService : IBatchUploadService
     private readonly IUnitOfWork _uow;
     private readonly IChunkStorageService _chunkStorage;
     private readonly IMapper _mapper;
+    private readonly ISarvamApiService? _sarvamApiService;
 
-    public BatchUploadService(IUnitOfWork uow, IChunkStorageService chunkStorage, IMapper mapper)
+    public BatchUploadService(IUnitOfWork uow, IChunkStorageService chunkStorage, IMapper mapper, ISarvamApiService? sarvamApiService = null)
     {
         _uow = uow;
         _chunkStorage = chunkStorage;
         _mapper = mapper;
+        _sarvamApiService = sarvamApiService;
     }
 
     public async Task<StartUploadResponse> StartUploadAsync(StartUploadRequest request, CancellationToken ct = default)
@@ -263,8 +265,48 @@ public class BatchUploadService : IBatchUploadService
                 Bookmarked = false,
                 FilePath = finalPath,
                 SourceLanguageCode = batch.SourceLanguageCode,
-                TranscriptionStatus = TranscriptionStatus.None
+                TranscriptionStatus = TranscriptionStatus.Processing
             };
+
+            // Automatically trigger Sarvam transcription if service is available
+            if (_sarvamApiService is not null && File.Exists(finalPath))
+            {
+                try
+                {
+                    var lines = await _sarvamApiService.TranscribeAudioAsync(finalPath, batch.SourceLanguageCode, ct);
+                    if (lines.Count > 0)
+                    {
+                        recording.Transcript = Mapping.StructuredContent.ToJson(lines);
+                        recording.TranscriptionStatus = TranscriptionStatus.Completed;
+
+                        if (string.IsNullOrWhiteSpace(recording.Summary))
+                        {
+                            var fullText = string.Join(" ", lines.Select(l => l.Text)).Trim();
+                            if (fullText.Length > 0)
+                            {
+                                recording.Summary = fullText.Length > 250 ? fullText.Substring(0, 247) + "..." : fullText;
+                            }
+                        }
+                    }
+                    else if (string.IsNullOrWhiteSpace(recording.Transcript))
+                    {
+                        recording.TranscriptionStatus = TranscriptionStatus.None;
+                    }
+                }
+                catch
+                {
+                    recording.TranscriptionStatus = TranscriptionStatus.Failed;
+                }
+            }
+            else if (string.IsNullOrWhiteSpace(recording.Transcript))
+            {
+                recording.TranscriptionStatus = TranscriptionStatus.None;
+            }
+            else
+            {
+                recording.TranscriptionStatus = TranscriptionStatus.Completed;
+            }
+
             _uow.Repository<Recording>().Add(recording);
 
             // 4. Delete temporary chunks (rows + files)

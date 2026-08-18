@@ -37,6 +37,7 @@ public static class DependencyInjection
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.Configure<StorageOptions>(configuration.GetSection(StorageOptions.SectionName));
+        services.Configure<ExternalServices.SarvamOptions>(configuration.GetSection(ExternalServices.SarvamOptions.SectionName));
 
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
         services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -44,6 +45,8 @@ public static class DependencyInjection
         services.AddScoped<IPasswordHasher, BcryptPasswordHasher>();
         services.AddScoped<IChunkStorageService, LocalChunkStorageService>();
         services.AddSingleton<IFirebaseAuthService, FirebaseAuthService>();
+
+        services.AddHttpClient<ISarvamApiService, ExternalServices.SarvamApiService>();
 
         return services;
     }
