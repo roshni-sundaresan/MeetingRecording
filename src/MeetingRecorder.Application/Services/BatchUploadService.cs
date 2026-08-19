@@ -6,6 +6,7 @@ using MeetingRecorder.Application.Exceptions;
 using MeetingRecorder.Application.Interfaces;
 using MeetingRecorder.Domain;
 using MeetingRecorder.Domain.Entities;
+using Microsoft.Extensions.Logging;
 
 namespace MeetingRecorder.Application.Services;
 
@@ -31,13 +32,20 @@ public class BatchUploadService : IBatchUploadService
     private readonly IChunkStorageService _chunkStorage;
     private readonly IMapper _mapper;
     private readonly ISarvamApiService? _sarvamApiService;
+    private readonly ILogger<BatchUploadService>? _logger;
 
-    public BatchUploadService(IUnitOfWork uow, IChunkStorageService chunkStorage, IMapper mapper, ISarvamApiService? sarvamApiService = null)
+    public BatchUploadService(
+        IUnitOfWork uow,
+        IChunkStorageService chunkStorage,
+        IMapper mapper,
+        ISarvamApiService? sarvamApiService = null,
+        ILogger<BatchUploadService>? logger = null)
     {
         _uow = uow;
         _chunkStorage = chunkStorage;
         _mapper = mapper;
         _sarvamApiService = sarvamApiService;
+        _logger = logger;
     }
 
     public async Task<StartUploadResponse> StartUploadAsync(StartUploadRequest request, CancellationToken ct = default)
@@ -293,8 +301,9 @@ public class BatchUploadService : IBatchUploadService
                         recording.TranscriptionStatus = TranscriptionStatus.None;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    _logger?.LogError(ex, "Failed to automatically transcribe recording batch {BatchId} via Sarvam AI.", batch.Id);
                     recording.TranscriptionStatus = TranscriptionStatus.Failed;
                 }
             }

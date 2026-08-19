@@ -144,10 +144,18 @@ public class SarvamApiService : ISarvamApiService
                 return results;
             }
 
-            // Case 2: Object with diarized_transcript -> entries
-            if (root.TryGetProperty("diarized_transcript", out var diarized) && diarized.ValueKind == JsonValueKind.Object)
+            // Case 2: Object with diarized_transcript (Array or Object with entries)
+            if (root.TryGetProperty("diarized_transcript", out var diarized))
             {
-                if (diarized.TryGetProperty("entries", out var entries) && entries.ValueKind == JsonValueKind.Array)
+                if (diarized.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in diarized.EnumerateArray())
+                    {
+                        results.Add(ParseSingleEntry(item));
+                    }
+                    return results;
+                }
+                if (diarized.ValueKind == JsonValueKind.Object && diarized.TryGetProperty("entries", out var entries) && entries.ValueKind == JsonValueKind.Array)
                 {
                     foreach (var item in entries.EnumerateArray())
                     {
@@ -158,13 +166,24 @@ public class SarvamApiService : ISarvamApiService
             }
 
             // Case 3: Object with data -> entries/array
-            if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+            if (root.TryGetProperty("data", out var data))
             {
-                foreach (var item in data.EnumerateArray())
+                if (data.ValueKind == JsonValueKind.Array)
                 {
-                    results.Add(ParseSingleEntry(item));
+                    foreach (var item in data.EnumerateArray())
+                    {
+                        results.Add(ParseSingleEntry(item));
+                    }
+                    return results;
                 }
-                return results;
+                if (data.ValueKind == JsonValueKind.Object && data.TryGetProperty("entries", out var dEntries) && dEntries.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in dEntries.EnumerateArray())
+                    {
+                        results.Add(ParseSingleEntry(item));
+                    }
+                    return results;
+                }
             }
 
             // Case 4: Single transcript field
@@ -189,18 +208,34 @@ public class SarvamApiService : ISarvamApiService
     {
         string speaker = "Speaker 1";
         if (item.TryGetProperty("speaker", out var sProp) && sProp.ValueKind == JsonValueKind.String)
+        {
             speaker = sProp.GetString()!;
-        else if (item.TryGetProperty("speaker_id", out var sidProp) && sidProp.ValueKind == JsonValueKind.String)
-            speaker = sidProp.GetString()!;
+        }
+        else if (item.TryGetProperty("speaker_id", out var sidProp))
+        {
+            if (sidProp.ValueKind == JsonValueKind.String)
+            {
+                var sid = sidProp.GetString();
+                speaker = !string.IsNullOrWhiteSpace(sid) ? (sid.StartsWith("Speaker", StringComparison.OrdinalIgnoreCase) ? sid : $"Speaker {sid}") : "Speaker 1";
+            }
+            else if (sidProp.ValueKind == JsonValueKind.Number)
+            {
+                speaker = $"Speaker {sidProp.GetInt32() + 1}";
+            }
+        }
 
         string text = "";
         if (item.TryGetProperty("text", out var tProp) && tProp.ValueKind == JsonValueKind.String)
             text = tProp.GetString()!;
         else if (item.TryGetProperty("transcript", out var trProp) && trProp.ValueKind == JsonValueKind.String)
             text = trProp.GetString()!;
+        else if (item.TryGetProperty("content", out var cProp) && cProp.ValueKind == JsonValueKind.String)
+            text = cProp.GetString()!;
 
         int? startSec = null;
-        if (item.TryGetProperty("start_seconds", out var ssProp) && ssProp.ValueKind == JsonValueKind.Number)
+        if (item.TryGetProperty("start_time_seconds", out var stsProp) && stsProp.ValueKind == JsonValueKind.Number)
+            startSec = (int)Math.Round(stsProp.GetDouble());
+        else if (item.TryGetProperty("start_seconds", out var ssProp) && ssProp.ValueKind == JsonValueKind.Number)
             startSec = (int)Math.Round(ssProp.GetDouble());
         else if (item.TryGetProperty("timestamp", out var tsProp) && tsProp.ValueKind == JsonValueKind.Number)
             startSec = (int)Math.Round(tsProp.GetDouble());
@@ -208,7 +243,9 @@ public class SarvamApiService : ISarvamApiService
             startSec = (int)Math.Round(tssProp.GetDouble());
 
         int? endSec = null;
-        if (item.TryGetProperty("end_seconds", out var esProp) && esProp.ValueKind == JsonValueKind.Number)
+        if (item.TryGetProperty("end_time_seconds", out var etsProp) && etsProp.ValueKind == JsonValueKind.Number)
+            endSec = (int)Math.Round(etsProp.GetDouble());
+        else if (item.TryGetProperty("end_seconds", out var esProp) && esProp.ValueKind == JsonValueKind.Number)
             endSec = (int)Math.Round(esProp.GetDouble());
 
         return new TranscriptLineDto(speaker, text, startSec, startSec, endSec);
@@ -251,9 +288,16 @@ public class SarvamApiService : ISarvamApiService
             ".wav" => "audio/wav",
             ".mp3" => "audio/mpeg",
             ".m4a" => "audio/mp4",
+            ".mp4" => "audio/mp4",
+            ".webm" => "audio/webm",
+            ".weba" => "audio/webm",
             ".aac" => "audio/aac",
             ".ogg" => "audio/ogg",
             ".flac" => "audio/flac",
+            ".3gp" or ".3gpp" => "audio/3gpp",
+            ".amr" => "audio/amr",
+            ".opus" => "audio/opus",
+            ".wma" => "audio/x-ms-wma",
             _ => "application/octet-stream"
         };
     }

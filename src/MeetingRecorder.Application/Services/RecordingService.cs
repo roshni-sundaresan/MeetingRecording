@@ -7,6 +7,7 @@ using MeetingRecorder.Application.Mapping;
 using MeetingRecorder.Application.Validators;
 using MeetingRecorder.Domain;
 using MeetingRecorder.Domain.Entities;
+using Microsoft.Extensions.Logging;
 
 namespace MeetingRecorder.Application.Services;
 
@@ -26,12 +27,18 @@ public class RecordingService : IRecordingService
     private readonly IUnitOfWork _uow;
     private readonly IMapper _mapper;
     private readonly ISarvamApiService? _sarvamApiService;
+    private readonly ILogger<RecordingService>? _logger;
 
-    public RecordingService(IUnitOfWork uow, IMapper mapper, ISarvamApiService? sarvamApiService = null)
+    public RecordingService(
+        IUnitOfWork uow,
+        IMapper mapper,
+        ISarvamApiService? sarvamApiService = null,
+        ILogger<RecordingService>? logger = null)
     {
         _uow = uow;
         _mapper = mapper;
         _sarvamApiService = sarvamApiService;
+        _logger = logger;
     }
 
     public Task<PagedResult<RecordingResponse>> GetRecordingsAsync(Guid? userId, QueryParameters query, CancellationToken ct = default)
@@ -109,9 +116,9 @@ public class RecordingService : IRecordingService
                     await _uow.SaveChangesAsync(ct);
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Soft failure fallback: log/ignore so endpoint still returns existing metadata
+                _logger?.LogWarning(ex, "Soft failure: unable to transcribe recording {RecordingId} on demand via Sarvam AI.", rec.Id);
             }
         }
 
