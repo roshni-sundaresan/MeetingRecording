@@ -62,6 +62,22 @@ public record SynthesizeTtsResponse(string AudioBase64);
 
 public record TranscribeAudioRequest(Guid? RecordingId = null, string? FilePath = null, string? LanguageCode = null);
 
+public record TranscriptionResultResponse(
+    Guid? RecordingId,
+    string? Title,
+    string? FilePath,
+    string? Summary,
+    IReadOnlyList<TranscriptLineDto> Transcription,
+    string? Transcript,
+    string? SourceLanguageCode,
+    TranscriptionStatus Status = TranscriptionStatus.Completed);
+
+public record UploadAudioRecordingRequest(
+    string? Title = null,
+    string? LanguageCode = null,
+    RecordingType? Type = null,
+    Guid? RecordingId = null);
+
 // ---------- Recordings ----------
 public record CreateRecordingRequest(Guid UserId, string Title, RecordingType Type, DateTime? CreatedAt,
     TimeSpan? Duration, string? Summary, IReadOnlyList<TranscriptLineDto>? Transcript,

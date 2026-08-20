@@ -404,6 +404,68 @@ Form fields (camelCase! multipart binds to property names):
 ```
 
 ---
+## 🤖 Sarvam AI Transcription & MOM / Summary
+
+### 23. POST /api/Transcription/upload  *(Bearer — multipart/form-data audio upload)*
+Directly uploads an audio file to the server, calls Sarvam STT to transcribe, saves transcript in DB, calls Sarvam AI to generate MOM/Summary, saves MOM in DB, and returns both transcription and summary in response.
+
+```
+Form fields:
+  file=@audio.mp3
+  title="Sprint Planning Meeting" (optional)
+  languageCode="en-IN" (optional)
+  type="meeting" (optional)
+  recordingId="<guid>" (optional - to attach to existing recording)
+```
+
+```json
+// Response 200
+{
+  "success": true,
+  "message": "Audio uploaded, transcribed, and summarized successfully.",
+  "data": {
+    "recording_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "title": "Sprint Planning Meeting",
+    "file_path": "uploads/recordings/2a941395.../audio.mp3",
+    "summary": "### Minutes of Meeting (MOM)\n\n**1. Executive Summary:** The team planned Q3 deliverables.\n**2. Key Discussion Points:** ...\n**3. Decisions & Action Items:** ...",
+    "transcription": [
+      {
+        "speaker": "Speaker 1",
+        "text": "Welcome everyone to sprint planning.",
+        "timestamp_seconds": 0,
+        "start_seconds": 0,
+        "end_seconds": 4
+      }
+    ],
+    "transcript": "Speaker 1: Welcome everyone to sprint planning.",
+    "source_language_code": "en-IN",
+    "status": "completed"
+  },
+  "status_code": 200
+}
+```
+
+### 24. POST /api/Transcription/transcribe  *(Bearer)*
+Triggers Sarvam STT transcription and MOM/Summary generation for an existing recording or file path.
+
+```json
+// Request
+{
+  "recording_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "language_code": "en-IN"
+}
+
+// Response 200 — same shape as TranscriptionResultResponse above with both transcription and summary
+```
+
+### 25. GET /api/Transcription/result?recording_id={id}  *(Bearer)*
+Fetches transcription lines, full transcript, and AI-generated MOM/Summary for a recording.
+
+```json
+// Response 200 — returns TranscriptionResultResponse with transcription and summary
+```
+
+---
 ## Enums (string values)
 
 | Field | Values |

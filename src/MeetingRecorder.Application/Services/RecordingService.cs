@@ -92,33 +92,82 @@ public class RecordingService : IRecordingService
         var rec = await _uow.Repository<Recording>().FirstOrDefaultAsync(r => r.Id == id && !r.IsDeleted, ct)
             ?? throw new NotFoundException(nameof(Recording), id);
 
-        if (string.IsNullOrWhiteSpace(rec.Transcript) && _sarvamApiService is not null && !string.IsNullOrWhiteSpace(rec.FilePath) && File.Exists(rec.FilePath))
-        {
-            try
-            {
-                var lines = await _sarvamApiService.TranscribeAudioAsync(rec.FilePath, rec.SourceLanguageCode, ct);
-                if (lines.Count > 0)
-                {
-                    rec.Transcript = StructuredContent.ToJson(lines);
-                    rec.TranscriptionStatus = TranscriptionStatus.Completed;
+        var resolvedPath = !string.IsNullOrWhiteSpace(rec.FilePath)
+            ? (Path.IsPathRooted(rec.FilePath) ? rec.FilePath : Path.GetFullPath(rec.FilePath))
+            : null;
 
-                    if (string.IsNullOrWhiteSpace(rec.Summary))
+        if (_sarvamApiService is not null)
+        {
+            var needsSave = false;
+
+            if (string.IsNullOrWhiteSpace(rec.Transcript) && !string.IsNullOrWhiteSpace(resolvedPath) && File.Exists(resolvedPath))
+            {
+                try
+                {
+                    var lines = await _sarvamApiService.TranscribeAudioAsync(resolvedPath, rec.SourceLanguageCode, ct);
+                    if (lines.Count > 0)
                     {
-                        var fullText = string.Join(" ", lines.Select(l => l.Text)).Trim();
-                        if (fullText.Length > 0)
+                        rec.Transcript = StructuredContent.ToJson(lines);
+                        rec.TranscriptionStatus = TranscriptionStatus.Completed;
+                        needsSave = true;
+
+                        if (string.IsNullOrWhiteSpace(rec.Summary))
                         {
-                            rec.Summary = fullText.Length > 250 ? fullText.Substring(0, 247) + "..." : fullText;
+                            try
+                            {
+                                var summary = await _sarvamApiService.SummarizeTranscriptAsync(lines, rec.SourceLanguageCode, ct);
+                                if (!string.IsNullOrWhiteSpace(summary))
+                                {
+                                    rec.Summary = summary;
+                                }
+                            }
+                            catch (Exception sEx)
+                            {
+                                _logger?.LogWarning(sEx, "Failed to generate AI summary for recording {RecordingId}.", rec.Id);
+                            }
+
+                            if (string.IsNullOrWhiteSpace(rec.Summary))
+                            {
+                                var fullText = string.Join(" ", lines.Select(l => l.Text)).Trim();
+                                if (fullText.Length > 0)
+                                {
+                                    rec.Summary = fullText.Length > 250 ? fullText.Substring(0, 247) + "..." : fullText;
+                                }
+                            }
                         }
                     }
-
-                    rec.UpdatedDate = DateTime.UtcNow;
-                    _uow.Repository<Recording>().Update(rec);
-                    await _uow.SaveChangesAsync(ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Soft failure: unable to transcribe recording {RecordingId} on demand via Sarvam AI.", rec.Id);
                 }
             }
-            catch (Exception ex)
+            else if (!string.IsNullOrWhiteSpace(rec.Transcript) && string.IsNullOrWhiteSpace(rec.Summary))
             {
-                _logger?.LogWarning(ex, "Soft failure: unable to transcribe recording {RecordingId} on demand via Sarvam AI.", rec.Id);
+                try
+                {
+                    var lines = StructuredContent.FromJson<TranscriptLineDto>(rec.Transcript);
+                    if (lines.Count > 0)
+                    {
+                        var summary = await _sarvamApiService.SummarizeTranscriptAsync(lines, rec.SourceLanguageCode, ct);
+                        if (!string.IsNullOrWhiteSpace(summary))
+                        {
+                            rec.Summary = summary;
+                            needsSave = true;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Soft failure: unable to summarize recording {RecordingId} on demand via Sarvam AI.", rec.Id);
+                }
+            }
+
+            if (needsSave)
+            {
+                rec.UpdatedDate = DateTime.UtcNow;
+                _uow.Repository<Recording>().Update(rec);
+                await _uow.SaveChangesAsync(ct);
             }
         }
 

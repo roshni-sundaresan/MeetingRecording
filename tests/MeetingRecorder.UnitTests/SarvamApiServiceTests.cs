@@ -131,6 +131,68 @@ public class SarvamApiServiceTests
         }
     }
 
+    [Fact]
+    public async Task SummarizeTranscript_WithValidTranscript_ReturnsMOMSummary()
+    {
+        var jsonResponse = @"{
+            ""id"": ""chatcmpl-12345"",
+            ""choices"": [
+                {
+                    ""message"": {
+                        ""role"": ""assistant"",
+                        ""content"": ""### Minutes of Meeting (MOM)\n\n**1. Executive Summary:** The team discussed Q3 release roadmap.\n**2. Key Points:** Architecture review completed.\n**3. Action Items:** John to deploy staging build by Friday.""
+                    }
+                }
+            ]
+        }";
+
+        var handler = new MockHttpMessageHandler(jsonResponse, HttpStatusCode.OK);
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://api.sarvam.ai") };
+        var sut = new SarvamApiService(httpClient, Options.Create(_options), NullLogger<SarvamApiService>.Instance);
+
+        var lines = new List<MeetingRecorder.Application.DTOs.TranscriptLineDto>
+        {
+            new("Speaker 1", "Let's review the Q3 release roadmap and architecture.", 0, 0, 10),
+            new("Speaker 2", "John will handle the staging deployment by Friday.", 11, 11, 20)
+        };
+
+        var summary = await sut.SummarizeTranscriptAsync(lines);
+
+        summary.Should().NotBeNull();
+        summary.Should().Contain("Minutes of Meeting (MOM)");
+        summary.Should().Contain("Action Items");
+    }
+
+    [Fact]
+    public async Task SummarizeTranscript_WhenApiFails_ReturnsFallbackSummary()
+    {
+        var handler = new MockHttpMessageHandler("Internal Server Error", HttpStatusCode.InternalServerError);
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://api.sarvam.ai") };
+        var sut = new SarvamApiService(httpClient, Options.Create(_options), NullLogger<SarvamApiService>.Instance);
+
+        var lines = new List<MeetingRecorder.Application.DTOs.TranscriptLineDto>
+        {
+            new("Speaker 1", "We decided on adopting the new cloud architecture.", 0, 0, 5)
+        };
+
+        var summary = await sut.SummarizeTranscriptAsync(lines);
+
+        summary.Should().NotBeNull();
+        summary.Should().Contain("We decided on adopting the new cloud architecture");
+    }
+
+    [Fact]
+    public async Task SummarizeTranscript_WithEmptyTranscript_ReturnsNull()
+    {
+        var handler = new MockHttpMessageHandler("", HttpStatusCode.OK);
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://api.sarvam.ai") };
+        var sut = new SarvamApiService(httpClient, Options.Create(_options), NullLogger<SarvamApiService>.Instance);
+
+        var summary = await sut.SummarizeTranscriptAsync(string.Empty);
+
+        summary.Should().BeNull();
+    }
+
     private class MockHttpMessageHandler : HttpMessageHandler
     {
         private readonly string _responseContent;

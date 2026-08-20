@@ -219,6 +219,9 @@ try
     app.UseAuthentication();
     app.UseAuthorization();
 
+    app.UseDefaultFiles();
+    app.UseStaticFiles();
+
     app.UseSwagger();
     app.UseSwaggerUI(options =>
     {

@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meeting Recorder — Sarvam AI Transcription & MOM Test Studio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        .gradient-bg { background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%); }
+        .tab-btn.active { border-bottom: 3px solid #6366f1; color: #4f46e5; font-weight: 600; }
+        .speaker-bubble-1 { background-color: #f0fdf4; border-left: 4px solid #22c55e; }
+        .speaker-bubble-2 { background-color: #eff6ff; border-left: 4px solid #3b82f6; }
+        .speaker-bubble-3 { background-color: #faf5ff; border-left: 4px solid #a855f7; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col font-sans">
+
+    <!-- Header -->
+    <header class="gradient-bg text-white shadow-lg">
+        <div class="max-w-6xl mx-auto px-6 py-6 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <div class="flex items-center gap-3">
+                    <span class="text-3xl">🎙️</span>
+                    <div>
+                        <h1 class="text-2xl font-bold tracking-tight">Sarvam AI Transcription & MOM Test Studio</h1>
+                        <p class="text-indigo-200 text-sm">Audio Upload &rarr; Sarvam STT &rarr; DB &rarr; Sarvam MOM / Summary &rarr; Response</p>
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <a href="/swagger" target="_blank" class="bg-indigo-950/60 hover:bg-indigo-900 text-indigo-200 hover:text-white px-4 py-2 rounded-lg text-sm transition border border-indigo-700/50 flex items-center gap-2">
+                    <i class="fa-solid fa-code"></i> Swagger UI
+                </a>
+                <div id="authStatusBadge" class="bg-rose-500/20 text-rose-200 border border-rose-500/40 text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-rose-400"></span> Not Authenticated
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-6xl mx-auto px-6 py-8 flex-1 w-full grid grid-cols-1 lg:grid-cols-12 gap-8">
+
+        <!-- Left Column: Controls & Upload -->
+        <div class="lg:col-span-5 space-y-6">
+
+            <!-- Step 1: Authentication -->
+            <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="font-semibold text-slate-800 flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 text-xs flex items-center justify-center font-bold">1</span>
+                        Authentication
+                    </h2>
+                    <button id="quickLoginBtn" onclick="quickLogin()" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium px-2.5 py-1 rounded-md transition flex items-center gap-1">
+                        <i class="fa-solid fa-bolt text-amber-500"></i> Quick Admin Login
+                    </button>
+                </div>
+
+                <div class="space-y-3 text-sm">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Email</label>
+                        <input id="authEmail" type="email" value="admin@meetingrecorder.dev" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-700 bg-slate-50 border-slate-200">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Password</label>
+                        <input id="authPassword" type="password" value="Admin@123" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-700 bg-slate-50 border-slate-200">
+                    </div>
+                    <button onclick="login()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-medium py-2 rounded-lg transition flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-right-to-bracket"></i> Sign In / Get Token
+                    </button>
+                </div>
+            </div>
+
+            <!-- Step 2: Upload / Record Audio -->
+            <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-4">
+                <div class="flex items-center justify-between">
+                    <h2 class="font-semibold text-slate-800 flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 text-xs flex items-center justify-center font-bold">2</span>
+                        Audio Recording
+                    </h2>
+                </div>
+
+                <!-- Input Type Switcher: File Upload vs Mic Record -->
+                <div class="flex bg-slate-100 p-1 rounded-xl text-xs font-medium">
+                    <button id="modeFileBtn" onclick="switchAudioMode('file')" class="flex-1 py-1.5 rounded-lg bg-white shadow-sm text-indigo-600 font-semibold">
+                        <i class="fa-solid fa-file-audio mr-1"></i> File Upload
+                    </button>
+                    <button id="modeMicBtn" onclick="switchAudioMode('mic')" class="flex-1 py-1.5 rounded-lg text-slate-600 hover:text-slate-900">
+                        <i class="fa-solid fa-microphone mr-1"></i> Record from Mic
+                    </button>
+                </div>
+
+                <!-- Mode A: File Upload Dropzone -->
+                <div id="fileUploadContainer" class="space-y-3">
+                    <div id="dropZone" class="border-2 border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/40 rounded-xl p-6 text-center cursor-pointer transition">
+                        <input id="audioFileInput" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.webm,.mp4,.aac,.ogg,.flac" class="hidden" onchange="handleFileSelected(this.files)">
+                        <div class="space-y-2" onclick="document.getElementById('audioFileInput').click()">
+                            <div class="w-12 h-12 mx-auto rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xl">
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                            </div>
+                            <div class="text-sm font-medium text-slate-700">Choose an audio file or drag & drop</div>
+                            <div class="text-xs text-slate-400">Supports MP3, WAV, M4A, WEBM, MP4, AAC, OGG</div>
+                        </div>
+                    </div>
+                    <div id="selectedFileInfo" class="hidden text-xs bg-indigo-50 text-indigo-700 p-3 rounded-lg flex items-center justify-between border border-indigo-100">
+                        <div class="flex items-center gap-2 truncate">
+                            <i class="fa-solid fa-file-lines text-indigo-500"></i>
+                            <span id="selectedFileName" class="font-medium truncate">recording.mp3</span>
+                            <span id="selectedFileSize" class="text-indigo-400"></span>
+                        </div>
+                        <button onclick="clearSelectedFile()" class="text-indigo-400 hover:text-indigo-600 text-sm">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+
+                    <!-- Sample Audio Helper -->
+                    <div class="bg-indigo-50/60 border border-indigo-100 rounded-xl p-3 flex items-center justify-between gap-2 text-xs">
+                        <div class="flex items-center gap-2 text-indigo-800 font-medium">
+                            <i class="fa-solid fa-music text-indigo-600"></i>
+                            <span>Sample Meeting Audio Clip</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <a href="/sample_meeting.wav" download="sample_meeting.wav" class="bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-md transition font-medium flex items-center gap-1">
+                                <i class="fa-solid fa-download"></i> Download WAV
+                            </a>
+                            <button onclick="loadSampleAudio()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded-md transition font-medium flex items-center gap-1 shadow-sm">
+                                <i class="fa-solid fa-play"></i> Use in Test
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Mode B: Microphone Recording -->
+                <div id="micRecordContainer" class="hidden space-y-3 text-center">
+                    <div class="border border-slate-200 rounded-xl p-6 bg-slate-50 space-y-4">
+                        <div id="recordTimer" class="text-3xl font-mono font-bold text-slate-700">00:00</div>
+                        <div class="flex justify-center gap-3">
+                            <button id="startRecordBtn" onclick="startMicRecording()" class="bg-rose-500 hover:bg-rose-600 text-white font-medium px-5 py-2.5 rounded-xl shadow-sm transition flex items-center gap-2 text-sm">
+                                <i class="fa-solid fa-circle"></i> Start Recording
+                            </button>
+                            <button id="stopRecordBtn" onclick="stopMicRecording()" disabled class="bg-slate-300 text-slate-500 font-medium px-5 py-2.5 rounded-xl transition flex items-center gap-2 text-sm cursor-not-allowed">
+                                <i class="fa-solid fa-square"></i> Stop
+                            </button>
+                        </div>
+                        <audio id="recordedAudioPreview" controls class="hidden w-full mt-2"></audio>
+                    </div>
+                </div>
+
+                <!-- Metadata Options -->
+                <div class="space-y-3 pt-2 text-xs">
+                    <div>
+                        <label class="block font-medium text-slate-600 mb-1">Meeting / Recording Title</label>
+                        <input id="recTitle" type="text" placeholder="e.g. Q3 Roadmap Planning" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-700 bg-slate-50 border-slate-200">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block font-medium text-slate-600 mb-1">Language</label>
+                            <select id="recLanguage" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-700 bg-slate-50 border-slate-200">
+                                <option value="en-IN">English (India) - en-IN</option>
+                                <option value="hi-IN">Hindi - hi-IN</option>
+                                <option value="mr-IN">Marathi - mr-IN</option>
+                                <option value="ta-IN">Tamil - ta-IN</option>
+                                <option value="te-IN">Telugu - te-IN</option>
+                                <option value="kn-IN">Kannada - kn-IN</option>
+                                <option value="gu-IN">Gujarati - gu-IN</option>
+                                <option value="bn-IN">Bengali - bn-IN</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block font-medium text-slate-600 mb-1">Type</label>
+                            <select id="recType" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-700 bg-slate-50 border-slate-200">
+                                <option value="meeting">Meeting</option>
+                                <option value="voice_note">Voice Note</option>
+                                <option value="interview">Interview</option>
+                                <option value="audio">Audio</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Submit Button -->
+                <button id="uploadBtn" onclick="uploadAndTranscribe()" class="w-full bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-semibold py-3 rounded-xl shadow-md transition flex items-center justify-center gap-2 mt-4 text-sm">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Upload & Generate MOM / Summary
+                </button>
+            </div>
+
+        </div>
+
+        <!-- Right Column: Results & Verification -->
+        <div class="lg:col-span-7 space-y-6">
+
+            <!-- Progress Card (Hidden by default) -->
+            <div id="progressCard" class="hidden bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-4">
+                <div class="flex items-center justify-between">
+                    <h3 class="font-semibold text-slate-800 flex items-center gap-2 text-sm">
+                        <i class="fa-solid fa-spinner fa-spin text-indigo-600"></i> Processing Pipeline in Progress
+                    </h3>
+                    <span id="elapsedTime" class="text-xs font-mono text-slate-500">0s</span>
+                </div>
+                <div class="space-y-2 text-xs">
+                    <div id="step1Status" class="flex items-center gap-2 text-slate-600">
+                        <i class="fa-solid fa-circle-notch fa-spin text-indigo-500"></i> Step 1: Uploading audio file to server storage...
+                    </div>
+                    <div id="step2Status" class="flex items-center gap-2 text-slate-400">
+                        <i class="fa-regular fa-circle"></i> Step 2: Calling Sarvam AI Speech-to-Text (STT) & saving transcript to DB...
+                    </div>
+                    <div id="step3Status" class="flex items-center gap-2 text-slate-400">
+                        <i class="fa-regular fa-circle"></i> Step 3: Calling Sarvam AI (sarvam-105b) to generate MOM / Summary & saving to DB...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Error Card -->
+            <div id="errorCard" class="hidden bg-rose-50 border border-rose-200 rounded-2xl p-5 text-rose-800 text-sm flex items-start gap-3">
+                <i class="fa-solid fa-circle-exclamation text-rose-500 text-lg mt-0.5"></i>
+                <div class="space-y-1 flex-1">
+                    <div class="font-semibold" id="errorTitle">An error occurred</div>
+                    <div class="text-xs text-rose-700" id="errorMessage"></div>
+                </div>
+            </div>
+
+            <!-- Results Card -->
+            <div id="resultsCard" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                
+                <!-- Results Header & Meta -->
+                <div class="p-6 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="bg-emerald-100 text-emerald-700 text-xs px-2.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
+                                <i class="fa-solid fa-check"></i> Completed
+                            </span>
+                            <h2 id="resultTitle" class="text-lg font-bold text-slate-800">Meeting Title</h2>
+                        </div>
+                        <div class="text-xs text-slate-500 mt-1 flex items-center gap-3">
+                            <span><i class="fa-regular fa-clock mr-1"></i> <span id="resultRecordingId"></span></span>
+                            <span><i class="fa-solid fa-language mr-1"></i> <span id="resultLanguage"></span></span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="fetchFromDb()" class="text-xs bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-medium px-3 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
+                            <i class="fa-solid fa-database text-indigo-500"></i> Verify in DB (GET API)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tabs -->
+                <div class="flex border-b border-slate-200 text-xs font-medium px-6">
+                    <button id="tabMomBtn" onclick="switchResultTab('mom')" class="tab-btn active py-3 px-4 flex items-center gap-2">
+                        <i class="fa-solid fa-file-signature"></i> Minutes of Meeting (MOM) / Summary
+                    </button>
+                    <button id="tabTranscriptBtn" onclick="switchResultTab('transcript')" class="tab-btn py-3 px-4 flex items-center gap-2 text-slate-500 hover:text-slate-800">
+                        <i class="fa-solid fa-users"></i> Diarized Transcript
+                    </button>
+                    <button id="tabFullTextBtn" onclick="switchResultTab('fulltext')" class="tab-btn py-3 px-4 flex items-center gap-2 text-slate-500 hover:text-slate-800">
+                        <i class="fa-solid fa-align-left"></i> Full Text
+                    </button>
+                    <button id="tabJsonBtn" onclick="switchResultTab('json')" class="tab-btn py-3 px-4 flex items-center gap-2 text-slate-500 hover:text-slate-800">
+                        <i class="fa-solid fa-code"></i> Raw JSON
+                    </button>
+                </div>
+
+                <!-- Tab 1: MOM / Summary Content -->
+                <div id="tabMomContent" class="p-6 space-y-4">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-sm font-bold text-slate-700 flex items-center gap-2">
+                            <i class="fa-solid fa-wand-magic-sparkles text-indigo-600"></i> AI-Generated Minutes of Meeting (MOM)
+                        </h3>
+                        <button onclick="copyToClipboard(currentSummary)" class="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium">
+                            <i class="fa-regular fa-copy"></i> Copy MOM
+                        </button>
+                    </div>
+                    <div id="renderedMomContainer" class="prose prose-sm prose-slate max-w-none bg-slate-50 p-5 rounded-xl border border-slate-200 text-slate-800 leading-relaxed">
+                    </div>
+                </div>
+
+                <!-- Tab 2: Diarized Transcript Lines -->
+                <div id="tabTranscriptContent" class="hidden p-6 space-y-4">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-sm font-bold text-slate-700 flex items-center gap-2">
+                            <i class="fa-solid fa-users text-indigo-600"></i> Diarized Speaker Transcript
+                        </h3>
+                        <span id="lineCountBadge" class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">0 lines</span>
+                    </div>
+                    <div id="diarizedLinesContainer" class="space-y-3 max-h-[450px] overflow-y-auto pr-2">
+                    </div>
+                </div>
+
+                <!-- Tab 3: Full Text Transcript -->
+                <div id="tabFullTextContent" class="hidden p-6 space-y-4">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-sm font-bold text-slate-700">Full Text Transcript</h3>
+                        <button onclick="copyToClipboard(currentFullTranscript)" class="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium">
+                            <i class="fa-regular fa-copy"></i> Copy Full Text
+                        </button>
+                    </div>
+                    <textarea id="fullTranscriptTextarea" readonly class="w-full h-80 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-700 focus:outline-none"></textarea>
+                </div>
+
+                <!-- Tab 4: Raw JSON Response -->
+                <div id="tabJsonContent" class="hidden p-6 space-y-4">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-sm font-bold text-slate-700">API Envelope Response</h3>
+                        <button onclick="copyJsonToClipboard()" class="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium">
+                            <i class="fa-regular fa-copy"></i> Copy JSON
+                        </button>
+                    </div>
+                    <pre id="rawJsonResponse" class="bg-slate-900 text-slate-100 p-4 rounded-xl text-xs font-mono max-h-[400px] overflow-auto"></pre>
+                </div>
+
+            </div>
+
+            <!-- Welcome Placeholder when no results yet -->
+            <div id="emptyPlaceholder" class="bg-white rounded-2xl p-12 shadow-sm border border-slate-200 text-center space-y-4">
+                <div class="w-16 h-16 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto text-2xl">
+                    <i class="fa-solid fa-microphone-lines"></i>
+                </div>
+                <div class="space-y-1">
+                    <h3 class="font-bold text-slate-800">Ready to test Sarvam AI transcription</h3>
+                    <p class="text-slate-500 text-sm max-w-md mx-auto">Upload an audio recording or speak into your microphone to verify that the backend saves the transcript and MOM/summary in the database and returns both.</p>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400">
+        Meeting Recorder Backend &bull; Sarvam AI STT & LLM Summarization Studio
+    </footer>
+
+    <!-- Logic Script -->
+    <script>
+        let jwtToken = localStorage.getItem('mr_jwt') || '';
+        let selectedAudioFile = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let recordTimerInterval = null;
+        let recordSeconds = 0;
+        let currentApiResponse = null;
+        let currentSummary = '';
+        let currentFullTranscript = '';
+        let currentRecordingId = null;
+
+        // Init
+        window.addEventListener('DOMContentLoaded', () => {
+            if (jwtToken) {
+                updateAuthStatus(true);
+            }
+        });
+
+        function updateAuthStatus(isAuthenticated) {
+            const badge = document.getElementById('authStatusBadge');
+            if (isAuthenticated) {
+                badge.className = 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5';
+                badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Authenticated';
+            } else {
+                badge.className = 'bg-rose-500/20 text-rose-200 border border-rose-500/40 text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5';
+                badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> Not Authenticated';
+            }
+        }
+
+        async function login() {
+            const email = document.getElementById('authEmail').value;
+            const password = document.getElementById('authPassword').value;
+
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+                if (res.ok && data.success && data.data?.token) {
+                    jwtToken = data.data.token;
+                    localStorage.setItem('mr_jwt', jwtToken);
+                    updateAuthStatus(true);
+                    alert('Login successful! You can now upload recordings.');
+                } else {
+                    alert('Login failed: ' + (data.message || 'Check credentials'));
+                }
+            } catch (err) {
+                alert('Login request error: ' + err.message);
+            }
+        }
+
+        async function quickLogin() {
+            document.getElementById('authEmail').value = 'admin@meetingrecorder.dev';
+            document.getElementById('authPassword').value = 'Admin@123';
+            await login();
+        }
+
+        function switchAudioMode(mode) {
+            const fileBtn = document.getElementById('modeFileBtn');
+            const micBtn = document.getElementById('modeMicBtn');
+            const fileContainer = document.getElementById('fileUploadContainer');
+            const micContainer = document.getElementById('micRecordContainer');
+
+            if (mode === 'file') {
+                fileBtn.className = 'flex-1 py-1.5 rounded-lg bg-white shadow-sm text-indigo-600 font-semibold';
+                micBtn.className = 'flex-1 py-1.5 rounded-lg text-slate-600 hover:text-slate-900';
+                fileContainer.classList.remove('hidden');
+                micContainer.classList.add('hidden');
+            } else {
+                micBtn.className = 'flex-1 py-1.5 rounded-lg bg-white shadow-sm text-indigo-600 font-semibold';
+                fileBtn.className = 'flex-1 py-1.5 rounded-lg text-slate-600 hover:text-slate-900';
+                micContainer.classList.remove('hidden');
+                fileContainer.classList.add('hidden');
+            }
+        }
+
+        function handleFileSelected(files) {
+            if (!files || files.length === 0) return;
+            selectedAudioFile = files[0];
+            document.getElementById('selectedFileName').textContent = selectedAudioFile.name;
+            document.getElementById('selectedFileSize').textContent = `(${(selectedAudioFile.size / (1024 * 1024)).toFixed(2)} MB)`;
+            document.getElementById('selectedFileInfo').classList.remove('hidden');
+            
+            if (!document.getElementById('recTitle').value) {
+                document.getElementById('recTitle').value = selectedAudioFile.name.replace(/\.[^/.]+$/, "");
+            }
+        }
+
+        async function loadSampleAudio() {
+            try {
+                const res = await fetch('/sample_meeting.wav');
+                const blob = await res.blob();
+                selectedAudioFile = new File([blob], 'sample_meeting.wav', { type: 'audio/wav' });
+                document.getElementById('selectedFileName').textContent = selectedAudioFile.name;
+                document.getElementById('selectedFileSize').textContent = `(${(selectedAudioFile.size / (1024 * 1024)).toFixed(2)} MB)`;
+                document.getElementById('selectedFileInfo').classList.remove('hidden');
+                document.getElementById('recTitle').value = 'Sprint Planning Sync (Sample)';
+                document.getElementById('recLanguage').value = 'en-IN';
+                switchAudioMode('file');
+            } catch (err) {
+                alert('Could not load sample audio: ' + err.message);
+            }
+        }
+
+        function clearSelectedFile() {
+            selectedAudioFile = null;
+            document.getElementById('audioFileInput').value = '';
+            document.getElementById('selectedFileInfo').classList.add('hidden');
+        }
+
+        // Drag & Drop
+        const dropZone = document.getElementById('dropZone');
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => { e.preventDefault(); dropZone.classList.add('border-indigo-500', 'bg-indigo-50/50'); });
+        });
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => { e.preventDefault(); dropZone.classList.remove('border-indigo-500', 'bg-indigo-50/50'); });
+        });
+        dropZone.addEventListener('drop', (e) => {
+            if (e.dataTransfer.files?.length) {
+                handleFileSelected(e.dataTransfer.files);
+            }
+        });
+
+        // Microphone Recording
+        async function startMicRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioChunks = [];
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    selectedAudioFile = new File([audioBlob], `mic_recording_${Date.now()}.webm`, { type: 'audio/webm' });
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    const preview = document.getElementById('recordedAudioPreview');
+                    preview.src = audioUrl;
+                    preview.classList.remove('hidden');
+                };
+
+                mediaRecorder.start();
+                document.getElementById('startRecordBtn').disabled = true;
+                document.getElementById('startRecordBtn').classList.add('opacity-50');
+                document.getElementById('stopRecordBtn').disabled = false;
+                document.getElementById('stopRecordBtn').className = 'bg-rose-600 hover:bg-rose-700 text-white font-medium px-5 py-2.5 rounded-xl transition flex items-center gap-2 text-sm shadow-sm';
+
+                recordSeconds = 0;
+                recordTimerInterval = setInterval(() => {
+                    recordSeconds++;
+                    const m = String(Math.floor(recordSeconds / 60)).padStart(2, '0');
+                    const s = String(recordSeconds % 60).padStart(2, '0');
+                    document.getElementById('recordTimer').textContent = `${m}:${s}`;
+                }, 1000);
+            } catch (err) {
+                alert('Microphone access error: ' + err.message);
+            }
+        }
+
+        function stopMicRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                clearInterval(recordTimerInterval);
+
+                document.getElementById('startRecordBtn').disabled = false;
+                document.getElementById('startRecordBtn').classList.remove('opacity-50');
+                document.getElementById('stopRecordBtn').disabled = true;
+                document.getElementById('stopRecordBtn').className = 'bg-slate-300 text-slate-500 font-medium px-5 py-2.5 rounded-xl transition flex items-center gap-2 text-sm cursor-not-allowed';
+            }
+        }
+
+        // Upload and Transcribe
+        async function uploadAndTranscribe() {
+            if (!jwtToken) {
+                alert('Please sign in or click "Quick Admin Login" first.');
+                return;
+            }
+            if (!selectedAudioFile) {
+                alert('Please select an audio file or record one using the microphone.');
+                return;
+            }
+
+            const title = document.getElementById('recTitle').value || selectedAudioFile.name;
+            const languageCode = document.getElementById('recLanguage').value;
+            const type = document.getElementById('recType').value;
+
+            // UI Progress
+            document.getElementById('progressCard').classList.remove('hidden');
+            document.getElementById('errorCard').classList.add('hidden');
+            document.getElementById('resultsCard').classList.add('hidden');
+            document.getElementById('emptyPlaceholder').classList.add('hidden');
+            document.getElementById('uploadBtn').disabled = true;
+            document.getElementById('uploadBtn').classList.add('opacity-50');
+
+            let timerSec = 0;
+            const timer = setInterval(() => {
+                timerSec++;
+                document.getElementById('elapsedTime').textContent = `${timerSec}s`;
+            }, 1000);
+
+            try {
+                const formData = new FormData();
+                formData.append('file', selectedAudioFile);
+                formData.append('title', title);
+                formData.append('languageCode', languageCode);
+                formData.append('type', type);
+
+                // Step status updates
+                setTimeout(() => {
+                    const s1 = document.getElementById('step1Status');
+                    if (s1) s1.innerHTML = '<i class="fa-solid fa-check text-emerald-500"></i> Step 1: Uploaded audio file to server storage';
+                    const s2 = document.getElementById('step2Status');
+                    if (s2) {
+                        s2.className = 'flex items-center gap-2 text-slate-600';
+                        s2.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-indigo-500"></i> Step 2: Calling Sarvam AI Speech-to-Text (STT) & saving transcript to DB...';
+                    }
+                }, 1500);
+
+                setTimeout(() => {
+                    const s2 = document.getElementById('step2Status');
+                    if (s2) s2.innerHTML = '<i class="fa-solid fa-check text-emerald-500"></i> Step 2: Transcript received and saved to DB';
+                    const s3 = document.getElementById('step3Status');
+                    if (s3) {
+                        s3.className = 'flex items-center gap-2 text-slate-600';
+                        s3.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-indigo-500"></i> Step 3: Calling Sarvam AI (sarvam-105b) to generate MOM / Summary & saving to DB...';
+                    }
+                }, 3500);
+
+                const response = await fetch('/api/transcription/upload', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${jwtToken}`
+                    },
+                    body: formData
+                });
+
+                clearInterval(timer);
+                const result = await response.json();
+                currentApiResponse = result;
+
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || result.errors?.[0] || 'Transcription failed');
+                }
+
+                displayResults(result.data);
+            } catch (err) {
+                clearInterval(timer);
+                document.getElementById('errorCard').classList.remove('hidden');
+                document.getElementById('errorTitle').textContent = 'Upload or Transcription Error';
+                document.getElementById('errorMessage').textContent = err.message;
+            } finally {
+                document.getElementById('progressCard').classList.add('hidden');
+                document.getElementById('uploadBtn').disabled = false;
+                document.getElementById('uploadBtn').classList.remove('opacity-50');
+            }
+        }
+
+        function displayResults(data) {
+            currentRecordingId = data.recording_id;
+            currentSummary = data.summary || 'No summary generated.';
+            currentFullTranscript = data.transcript || '';
+
+            document.getElementById('resultTitle').textContent = data.title || 'Untitled Recording';
+            document.getElementById('resultRecordingId').textContent = `ID: ${data.recording_id || 'N/A'}`;
+            document.getElementById('resultLanguage').textContent = `Language: ${data.source_language_code || 'en-IN'}`;
+
+            // Render MOM / Summary with Markdown
+            const renderedMom = marked.parse(currentSummary);
+            document.getElementById('renderedMomContainer').innerHTML = renderedMom;
+
+            // Render Diarized Transcript Lines
+            const linesContainer = document.getElementById('diarizedLinesContainer');
+            linesContainer.innerHTML = '';
+
+            const lines = data.transcription || [];
+            document.getElementById('lineCountBadge').textContent = `${lines.length} lines`;
+
+            if (lines.length === 0) {
+                linesContainer.innerHTML = '<div class="text-xs text-slate-400 p-4 text-center">No transcript lines found.</div>';
+            } else {
+                lines.forEach((line, index) => {
+                    const bubble = document.createElement('div');
+                    const colorClass = (index % 3 === 0) ? 'speaker-bubble-1' : (index % 3 === 1 ? 'speaker-bubble-2' : 'speaker-bubble-3');
+                    bubble.className = `p-3 rounded-xl ${colorClass} text-xs space-y-1`;
+                    
+                    const timeRange = (line.start_seconds !== undefined && line.start_seconds !== null)
+                        ? `<span class="text-slate-400 font-mono ml-2">[${formatSeconds(line.start_seconds)}${line.end_seconds ? ' - ' + formatSeconds(line.end_seconds) : ''}]</span>`
+                        : '';
+
+                    bubble.innerHTML = `
+                        <div class="font-bold text-slate-700 flex items-center justify-between">
+                            <span>${line.speaker || 'Speaker 1'}</span>
+                            ${timeRange}
+                        </div>
+                        <div class="text-slate-800">${escapeHtml(line.text)}</div>
+                    `;
+                    linesContainer.appendChild(bubble);
+                });
+            }
+
+            // Render Full Text
+            document.getElementById('fullTranscriptTextarea').value = currentFullTranscript;
+
+            // Render Raw JSON
+            document.getElementById('rawJsonResponse').textContent = JSON.stringify(currentApiResponse, null, 2);
+
+            // Show results card
+            document.getElementById('resultsCard').classList.remove('hidden');
+        }
+
+        async function fetchFromDb() {
+            if (!currentRecordingId) {
+                alert('No recording ID available.');
+                return;
+            }
+            try {
+                const res = await fetch(`/api/recordings/${currentRecordingId}`, {
+                    headers: { 'Authorization': `Bearer ${jwtToken}` }
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    alert(`Database verification successful!\n\nRecording ID: ${data.data.id}\nTitle: ${data.data.title}\nStatus: ${data.data.transcription_status}\nSummary Present: ${!!data.data.summary}\nTranscript Items: ${data.data.transcript?.length || 0}`);
+                } else {
+                    alert('Error fetching from DB: ' + (data.message || 'Not found'));
+                }
+            } catch (err) {
+                alert('DB verification error: ' + err.message);
+            }
+        }
+
+        function switchResultTab(tab) {
+            ['mom', 'transcript', 'fulltext', 'json'].forEach(t => {
+                document.getElementById(`tab${capitalize(t)}Btn`).className = 'tab-btn py-3 px-4 flex items-center gap-2 text-slate-500 hover:text-slate-800';
+                document.getElementById(`tab${capitalize(t)}Content`).classList.add('hidden');
+            });
+
+            document.getElementById(`tab${capitalize(tab)}Btn`).className = 'tab-btn active py-3 px-4 flex items-center gap-2 font-semibold text-indigo-600';
+            document.getElementById(`tab${capitalize(tab)}Content`).classList.remove('hidden');
+        }
+
+        function formatSeconds(sec) {
+            const m = String(Math.floor(sec / 60)).padStart(2, '0');
+            const s = String(Math.floor(sec % 60)).padStart(2, '0');
+            return `${m}:${s}`;
+        }
+
+        function capitalize(str) {
+            if (str === 'mom') return 'Mom';
+            if (str === 'fulltext') return 'Fulltext';
+            return str.charAt(0).toUpperCase() + str.slice(1);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text);
+            alert('Copied to clipboard!');
+        }
+
+        function copyJsonToClipboard() {
+            if (currentApiResponse) {
+                navigator.clipboard.writeText(JSON.stringify(currentApiResponse, null, 2));
+                alert('Copied JSON to clipboard!');
+            }
+        }
+    </script>
+</body>
+</html>

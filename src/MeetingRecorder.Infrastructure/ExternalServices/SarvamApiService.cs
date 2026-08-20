@@ -37,7 +37,11 @@ public class SarvamApiService : ISarvamApiService
     public async Task<IReadOnlyList<TranscriptLineDto>> TranscribeAudioAsync(
         string filePath, string? languageCode = null, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+        var resolvedPath = string.IsNullOrWhiteSpace(filePath)
+            ? string.Empty
+            : (Path.IsPathRooted(filePath) ? filePath : Path.GetFullPath(filePath));
+
+        if (string.IsNullOrWhiteSpace(resolvedPath) || !File.Exists(resolvedPath))
         {
             throw new NotFoundException("Audio file for transcription", filePath ?? string.Empty);
         }
@@ -53,17 +57,17 @@ public class SarvamApiService : ISarvamApiService
         request.Headers.Add("api-subscription-key", apiKey);
 
         using var content = new MultipartFormDataContent();
-        await using var fileStream = File.OpenRead(filePath);
+        await using var fileStream = File.OpenRead(resolvedPath);
         var streamContent = new StreamContent(fileStream);
-        streamContent.Headers.ContentType = new MediaTypeHeaderValue(GetContentType(filePath));
+        streamContent.Headers.ContentType = new MediaTypeHeaderValue(GetContentType(resolvedPath));
 
-        content.Add(streamContent, "file", Path.GetFileName(filePath));
+        content.Add(streamContent, "file", Path.GetFileName(resolvedPath));
         content.Add(new StringContent(string.IsNullOrWhiteSpace(_options.SttModel) ? "saaras:v3" : _options.SttModel), "model");
         content.Add(new StringContent(string.IsNullOrWhiteSpace(languageCode) ? _options.LanguageCode : languageCode), "language_code");
 
         request.Content = content;
 
-        _logger.LogInformation("Sending STT request to Sarvam AI for file {FilePath}", filePath);
+        _logger.LogInformation("Sending STT request to Sarvam AI for file {FilePath}", resolvedPath);
         var response = await _httpClient.SendAsync(request, ct);
         var responseJson = await response.Content.ReadAsStringAsync(ct);
 
@@ -74,6 +78,88 @@ public class SarvamApiService : ISarvamApiService
         }
 
         return ParseSttResponse(responseJson);
+    }
+
+    public async Task<string?> SummarizeTranscriptAsync(
+        IReadOnlyList<TranscriptLineDto> lines, string? languageCode = null, CancellationToken ct = default)
+    {
+        if (lines == null || lines.Count == 0)
+            return null;
+
+        var fullText = string.Join("\n", lines.Select(l => $"{l.Speaker}: {l.Text}")).Trim();
+        return await SummarizeTranscriptAsync(fullText, languageCode, ct);
+    }
+
+    public async Task<string?> SummarizeTranscriptAsync(
+        string transcriptText, string? languageCode = null, CancellationToken ct = default)
+    {
+        var cleanedText = transcriptText?.Trim();
+        if (string.IsNullOrWhiteSpace(cleanedText))
+        {
+            return null;
+        }
+
+        var apiKey = GetEffectiveApiKey();
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            _logger.LogWarning("Sarvam API key is not configured. Generating fallback summary from transcript.");
+            return GenerateFallbackSummary(cleanedText);
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/chat/completions");
+            request.Headers.Add("api-subscription-key", apiKey);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+
+            var model = string.IsNullOrWhiteSpace(_options.SummaryModel) ? "sarvam-105b" : _options.SummaryModel;
+
+            var systemPrompt = "You are an expert AI meeting assistant. Your task is to generate a comprehensive, clear, and structured summary (Minutes of Meeting / MOM) from the provided audio transcription.\n\n" +
+                "Format the MOM/Summary with the following sections where applicable:\n" +
+                "1. Executive Summary / Overview\n" +
+                "2. Key Discussion Points\n" +
+                "3. Decisions Made & Action Items\n\n" +
+                "Ensure the summary is accurate, professional, and directly reflects the discussion.";
+
+            var userPrompt = $"Please generate a clear MOM / Summary for the following meeting transcript:\n\n{cleanedText}";
+
+            var payload = new
+            {
+                model = model,
+                messages = new[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = userPrompt }
+                },
+                temperature = 0.3,
+                max_tokens = 1500
+            };
+
+            request.Content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
+
+            _logger.LogInformation("Sending MOM/Summary chat completion request to Sarvam AI with model {Model} for transcript length {Length}", model, cleanedText.Length);
+            var response = await _httpClient.SendAsync(request, ct);
+            var responseJson = await response.Content.ReadAsStringAsync(ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Sarvam chat completion summary returned status {StatusCode}: {Response}. Using fallback summary.", response.StatusCode, responseJson);
+                return GenerateFallbackSummary(cleanedText);
+            }
+
+            var extractedSummary = ExtractChatCompletionContent(responseJson);
+            if (!string.IsNullOrWhiteSpace(extractedSummary))
+            {
+                return extractedSummary;
+            }
+
+            return GenerateFallbackSummary(cleanedText);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Exception while generating summary via Sarvam AI. Using fallback summary.");
+            return GenerateFallbackSummary(cleanedText);
+        }
     }
 
     public async Task<string> SynthesizeTextToSpeechAsync(
@@ -249,6 +335,76 @@ public class SarvamApiService : ISarvamApiService
             endSec = (int)Math.Round(esProp.GetDouble());
 
         return new TranscriptLineDto(speaker, text, startSec, startSec, endSec);
+    }
+
+    private static string? ExtractChatCompletionContent(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array && choices.GetArrayLength() > 0)
+            {
+                var firstChoice = choices[0];
+                if (firstChoice.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.Object)
+                {
+                    if (message.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String)
+                    {
+                        var text = content.GetString();
+                        if (!string.IsNullOrWhiteSpace(text)) return text.Trim();
+                    }
+                }
+                if (firstChoice.TryGetProperty("text", out var choiceText) && choiceText.ValueKind == JsonValueKind.String)
+                {
+                    var text = choiceText.GetString();
+                    if (!string.IsNullOrWhiteSpace(text)) return text.Trim();
+                }
+            }
+
+            if (root.TryGetProperty("summary", out var summaryProp) && summaryProp.ValueKind == JsonValueKind.String)
+            {
+                var text = summaryProp.GetString();
+                if (!string.IsNullOrWhiteSpace(text)) return text.Trim();
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string GenerateFallbackSummary(string transcriptText)
+    {
+        if (string.IsNullOrWhiteSpace(transcriptText))
+            return string.Empty;
+
+        var lines = transcriptText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.Trim())
+            .Where(l => !string.IsNullOrWhiteSpace(l))
+            .ToList();
+
+        if (lines.Count == 0)
+            return transcriptText.Length > 250 ? transcriptText.Substring(0, 247) + "..." : transcriptText;
+
+        if (lines.Count == 1)
+        {
+            var line = lines[0];
+            if (line.Contains(':'))
+            {
+                var parts = line.Split(':', 2);
+                line = parts[1].Trim();
+            }
+            return line.Length > 300 ? line.Substring(0, 297) + "..." : line;
+        }
+
+        var cleanSentences = lines.Select(l => l.Contains(':') ? l.Split(':', 2)[1].Trim() : l).ToList();
+        var firstFew = cleanSentences.Take(3);
+        return string.Join(" ", firstFew);
     }
 
     private static string ExtractAudioBase64(string json)

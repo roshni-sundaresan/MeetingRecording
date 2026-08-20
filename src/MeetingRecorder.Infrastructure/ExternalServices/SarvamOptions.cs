@@ -8,6 +8,7 @@ public class SarvamOptions
     public string BaseUrl { get; set; } = "https://api.sarvam.ai";
     public string SttModel { get; set; } = "saaras:v3";
     public string TtsModel { get; set; } = "bulbul:v3";
-    public string TtsSpeaker { get; set; } = "meera";
+    public string TtsSpeaker { get; set; } = "pooja";
+    public string SummaryModel { get; set; } = "sarvam-105b";
     public string LanguageCode { get; set; } = "en-IN";
 }

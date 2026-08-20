@@ -276,12 +276,13 @@ public class BatchUploadService : IBatchUploadService
                 TranscriptionStatus = TranscriptionStatus.Processing
             };
 
-            // Automatically trigger Sarvam transcription if service is available
-            if (_sarvamApiService is not null && File.Exists(finalPath))
+            // Automatically trigger Sarvam transcription and summary if service is available
+            var resolvedFinalPath = Path.IsPathRooted(finalPath) ? finalPath : Path.GetFullPath(finalPath);
+            if (_sarvamApiService is not null && File.Exists(resolvedFinalPath))
             {
                 try
                 {
-                    var lines = await _sarvamApiService.TranscribeAudioAsync(finalPath, batch.SourceLanguageCode, ct);
+                    var lines = await _sarvamApiService.TranscribeAudioAsync(resolvedFinalPath, batch.SourceLanguageCode, ct);
                     if (lines.Count > 0)
                     {
                         recording.Transcript = Mapping.StructuredContent.ToJson(lines);
@@ -289,10 +290,26 @@ public class BatchUploadService : IBatchUploadService
 
                         if (string.IsNullOrWhiteSpace(recording.Summary))
                         {
-                            var fullText = string.Join(" ", lines.Select(l => l.Text)).Trim();
-                            if (fullText.Length > 0)
+                            try
                             {
-                                recording.Summary = fullText.Length > 250 ? fullText.Substring(0, 247) + "..." : fullText;
+                                var summary = await _sarvamApiService.SummarizeTranscriptAsync(lines, batch.SourceLanguageCode, ct);
+                                if (!string.IsNullOrWhiteSpace(summary))
+                                {
+                                    recording.Summary = summary;
+                                }
+                            }
+                            catch (Exception sEx)
+                            {
+                                _logger?.LogWarning(sEx, "Failed to generate AI summary for recording batch {BatchId}.", batch.Id);
+                            }
+
+                            if (string.IsNullOrWhiteSpace(recording.Summary))
+                            {
+                                var fullText = string.Join(" ", lines.Select(l => l.Text)).Trim();
+                                if (fullText.Length > 0)
+                                {
+                                    recording.Summary = fullText.Length > 250 ? fullText.Substring(0, 247) + "..." : fullText;
+                                }
                             }
                         }
                     }

@@ -27,13 +27,141 @@ public class TranscriptionController : ApiControllerBase
     }
 
     /// <summary>
+    /// Direct audio file upload: saves the recording, calls Sarvam STT to get the transcript,
+    /// saves transcript to DB, calls Sarvam AI to generate the MOM/Summary, saves MOM/Summary to DB,
+    /// and returns the complete result containing both transcription and summary.
+    /// </summary>
+    [HttpPost("upload")]
+    [RequestSizeLimit(500L * 1024 * 1024)] // 500 MB
+    [ProducesResponseType(typeof(ApiResponse<TranscriptionResultResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<TranscriptionResultResponse>>> UploadAndTranscribe(
+        IFormFile file,
+        [FromForm] string? title = null,
+        [FromForm] string? languageCode = null,
+        [FromForm] RecordingType? type = null,
+        [FromForm] Guid? recordingId = null,
+        CancellationToken ct = default)
+    {
+        if (file is null || file.Length == 0)
+        {
+            throw new AppException("A non-empty audio file is required.", 400, "VALIDATION_ERROR");
+        }
+
+        var userId = CurrentUser.UserId ?? Guid.Empty;
+        var batchDirId = Guid.NewGuid().ToString("N");
+        var recordingDir = Path.Combine(_env.ContentRootPath, "uploads", "recordings", batchDirId);
+        Directory.CreateDirectory(recordingDir);
+
+        var originalFileName = Path.GetFileName(file.FileName);
+        if (string.IsNullOrWhiteSpace(originalFileName))
+            originalFileName = $"recording_{batchDirId}.mp4";
+
+        var targetFilePath = Path.Combine(recordingDir, originalFileName);
+        await using (var stream = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+        {
+            await file.CopyToAsync(stream, ct);
+        }
+
+        // Relative path for database portability
+        var relativePath = Path.Combine("uploads", "recordings", batchDirId, originalFileName);
+
+        Recording? rec = null;
+        if (recordingId.HasValue && recordingId.Value != Guid.Empty)
+        {
+            rec = await _uow.Repository<Recording>().FirstOrDefaultAsync(r => r.Id == recordingId.Value && !r.IsDeleted, ct);
+            if (rec is not null)
+            {
+                AccessPolicies.EnsureCanActOnUser(CurrentUser, rec.UserId);
+                rec.FilePath = relativePath;
+                rec.TranscriptionStatus = TranscriptionStatus.Processing;
+                rec.UpdatedDate = DateTime.UtcNow;
+                _uow.Repository<Recording>().Update(rec);
+                await _uow.SaveChangesAsync(ct);
+            }
+        }
+
+        IReadOnlyList<TranscriptLineDto> lines = Array.Empty<TranscriptLineDto>();
+        string? summary = null;
+
+        try
+        {
+            // 1. Call Sarvam STT to get transcript
+            lines = await _sarvamApiService.TranscribeAudioAsync(targetFilePath, languageCode ?? rec?.SourceLanguageCode, ct);
+
+            // 2. Call Sarvam AI to generate MOM / Summary from transcript
+            if (lines.Count > 0)
+            {
+                summary = await _sarvamApiService.SummarizeTranscriptAsync(lines, languageCode ?? rec?.SourceLanguageCode, ct);
+            }
+
+            // 3. Save or update recording in DB
+            if (rec is null)
+            {
+                rec = new Recording
+                {
+                    UserId = userId,
+                    Title = !string.IsNullOrWhiteSpace(title) ? title.Trim() : Path.GetFileNameWithoutExtension(originalFileName),
+                    Type = type ?? RecordingType.Meeting,
+                    CreatedAt = DateTime.UtcNow,
+                    Duration = TimeSpan.Zero,
+                    Summary = summary,
+                    Transcript = StructuredContent.ToJson(lines),
+                    FilePath = relativePath,
+                    SourceLanguageCode = languageCode,
+                    TranscriptionStatus = lines.Count > 0 ? TranscriptionStatus.Completed : TranscriptionStatus.None,
+                    IsRecording = false,
+                    Bookmarked = false
+                };
+                _uow.Repository<Recording>().Add(rec);
+            }
+            else
+            {
+                rec.Transcript = StructuredContent.ToJson(lines);
+                rec.Summary = summary;
+                rec.TranscriptionStatus = lines.Count > 0 ? TranscriptionStatus.Completed : TranscriptionStatus.None;
+                rec.UpdatedDate = DateTime.UtcNow;
+                _uow.Repository<Recording>().Update(rec);
+            }
+
+            await _uow.SaveChangesAsync(ct);
+        }
+        catch (Exception)
+        {
+            if (rec is not null)
+            {
+                rec.TranscriptionStatus = TranscriptionStatus.Failed;
+                rec.UpdatedDate = DateTime.UtcNow;
+                _uow.Repository<Recording>().Update(rec);
+                await _uow.SaveChangesAsync(ct);
+            }
+            throw;
+        }
+
+        var fullTranscript = string.Join("\n", lines.Select(l => $"{l.Speaker}: {l.Text}")).Trim();
+        var response = new TranscriptionResultResponse(
+            rec?.Id,
+            rec?.Title ?? (!string.IsNullOrWhiteSpace(title) ? title : Path.GetFileNameWithoutExtension(originalFileName)),
+            relativePath,
+            summary,
+            lines,
+            fullTranscript,
+            rec?.SourceLanguageCode ?? languageCode,
+            rec?.TranscriptionStatus ?? TranscriptionStatus.Completed);
+
+        return Envelope(response, "Audio uploaded, transcribed, and summarized successfully.");
+    }
+
+    /// <summary>
     /// Explicitly trigger audio transcription via Sarvam AI for a recording or file.
+    /// Stores the transcript in DB, calls Sarvam AI to generate the MOM/Summary, stores the MOM/Summary in DB,
+    /// and returns both transcription and summary in the response.
     /// </summary>
     [HttpPost("transcribe")]
-    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TranscriptLineDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<TranscriptionResultResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<IReadOnlyList<TranscriptLineDto>>>> Transcribe(
+    public async Task<ActionResult<ApiResponse<TranscriptionResultResponse>>> Transcribe(
         [FromBody] TranscribeAudioRequest request, CancellationToken ct)
     {
         await ValidateAsync(request, ct);
@@ -80,13 +208,24 @@ public class TranscriptionController : ApiControllerBase
         }
 
         IReadOnlyList<TranscriptLineDto> lines;
+        string? summary = null;
         try
         {
+            // 1. Call Sarvam STT
             lines = await _sarvamApiService.TranscribeAudioAsync(fullPath, request.LanguageCode ?? rec?.SourceLanguageCode, ct);
+
+            // 2. Call Sarvam Summary / MOM
+            if (lines.Count > 0)
+            {
+                summary = await _sarvamApiService.SummarizeTranscriptAsync(lines, request.LanguageCode ?? rec?.SourceLanguageCode, ct);
+            }
+
+            // 3. Store transcript and MOM/summary in DB
             if (rec is not null)
             {
                 rec.Transcript = StructuredContent.ToJson(lines);
-                rec.TranscriptionStatus = TranscriptionStatus.Completed;
+                rec.Summary = summary;
+                rec.TranscriptionStatus = lines.Count > 0 ? TranscriptionStatus.Completed : TranscriptionStatus.None;
                 rec.UpdatedDate = DateTime.UtcNow;
                 _uow.Repository<Recording>().Update(rec);
                 await _uow.SaveChangesAsync(ct);
@@ -104,17 +243,28 @@ public class TranscriptionController : ApiControllerBase
             throw;
         }
 
-        return Envelope(lines, "Transcription completed successfully.");
+        var fullTranscript = string.Join("\n", lines.Select(l => $"{l.Speaker}: {l.Text}")).Trim();
+        var response = new TranscriptionResultResponse(
+            rec?.Id,
+            rec?.Title,
+            targetFilePath,
+            summary ?? rec?.Summary,
+            lines,
+            fullTranscript,
+            request.LanguageCode ?? rec?.SourceLanguageCode,
+            rec?.TranscriptionStatus ?? TranscriptionStatus.Completed);
+
+        return Envelope(response, "Transcription and MOM/summary completed successfully.");
     }
 
     /// <summary>
-    /// Fetch transcription results for a recording or file path.
-    /// If not yet transcribed, triggers Sarvam AI transcription automatically.
+    /// Fetch transcription and MOM/summary results for a recording or file path.
+    /// If not yet transcribed or summarized, triggers Sarvam AI automatically and stores in DB.
     /// </summary>
     [HttpGet("result")]
-    [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<TranscriptLineDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<TranscriptionResultResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<IReadOnlyList<TranscriptLineDto>>>> GetResult(
+    public async Task<ActionResult<ApiResponse<TranscriptionResultResponse>>> GetResult(
         [FromQuery(Name = "recording_id")] Guid? recordingId,
         [FromQuery(Name = "file_path")] string? filePath,
         CancellationToken ct)
@@ -134,13 +284,33 @@ public class TranscriptionController : ApiControllerBase
         {
             AccessPolicies.EnsureCanActOnUser(CurrentUser, rec.UserId);
 
-            // If existing transcript is saved, return it immediately
+            // If existing transcript is saved
             if (!string.IsNullOrWhiteSpace(rec.Transcript))
             {
                 var existingLines = StructuredContent.FromJson<TranscriptLineDto>(rec.Transcript);
                 if (existingLines.Count > 0)
                 {
-                    return Envelope(existingLines);
+                    // Generate summary if missing
+                    if (string.IsNullOrWhiteSpace(rec.Summary))
+                    {
+                        rec.Summary = await _sarvamApiService.SummarizeTranscriptAsync(existingLines, rec.SourceLanguageCode, ct);
+                        rec.UpdatedDate = DateTime.UtcNow;
+                        _uow.Repository<Recording>().Update(rec);
+                        await _uow.SaveChangesAsync(ct);
+                    }
+
+                    var existingFullTranscript = string.Join("\n", existingLines.Select(l => $"{l.Speaker}: {l.Text}")).Trim();
+                    var existingResponse = new TranscriptionResultResponse(
+                        rec.Id,
+                        rec.Title,
+                        rec.FilePath,
+                        rec.Summary,
+                        existingLines,
+                        existingFullTranscript,
+                        rec.SourceLanguageCode,
+                        rec.TranscriptionStatus);
+
+                    return Envelope(existingResponse);
                 }
             }
 
@@ -158,18 +328,37 @@ public class TranscriptionController : ApiControllerBase
             throw new NotFoundException("Audio file", filePath);
         }
 
-        // Transcribe and persist if recording is present
+        // Transcribe and summarize via Sarvam AI, and persist if recording is present
         var lines = await _sarvamApiService.TranscribeAudioAsync(fullPath, rec?.SourceLanguageCode, ct);
+        string? summary = null;
+
+        if (lines.Count > 0)
+        {
+            summary = await _sarvamApiService.SummarizeTranscriptAsync(lines, rec?.SourceLanguageCode, ct);
+        }
+
         if (rec is not null && lines.Count > 0)
         {
             rec.Transcript = StructuredContent.ToJson(lines);
+            rec.Summary = summary;
             rec.TranscriptionStatus = TranscriptionStatus.Completed;
             rec.UpdatedDate = DateTime.UtcNow;
             _uow.Repository<Recording>().Update(rec);
             await _uow.SaveChangesAsync(ct);
         }
 
-        return Envelope(lines);
+        var fullText = string.Join("\n", lines.Select(l => $"{l.Speaker}: {l.Text}")).Trim();
+        var resultResponse = new TranscriptionResultResponse(
+            rec?.Id,
+            rec?.Title,
+            filePath,
+            summary ?? rec?.Summary,
+            lines,
+            fullText,
+            rec?.SourceLanguageCode,
+            rec?.TranscriptionStatus ?? TranscriptionStatus.Completed);
+
+        return Envelope(resultResponse);
     }
 
     private string ResolveFilePath(string path)
@@ -180,3 +369,4 @@ public class TranscriptionController : ApiControllerBase
         return Path.GetFullPath(path, _env.ContentRootPath);
     }
 }
+
