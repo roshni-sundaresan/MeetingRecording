@@ -1,9 +1,12 @@
 using System.Net;
 using FluentAssertions;
 using MeetingRecorder.Application.Exceptions;
+using MeetingRecorder.Application.Interfaces;
+using MeetingRecorder.Domain.Entities;
 using MeetingRecorder.Infrastructure.ExternalServices;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Moq;
 
 namespace MeetingRecorder.UnitTests;
 
@@ -237,6 +240,116 @@ public class SarvamApiServiceTests
         var isValid = await sut.ValidateApiKeyAsync("sk_invalid_test_key_12345");
 
         isValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task TranscribeAudio_WhenUserHasCustomApiKey_UsesUsersSpecificKeyOnly()
+    {
+        var tempFile = Path.GetTempFileName();
+        await File.WriteAllBytesAsync(tempFile, new byte[100]);
+
+        try
+        {
+            var userId = Guid.NewGuid();
+            var userWithCustomKey = new User
+            {
+                Id = userId,
+                Email = "user_a@test.com",
+                Name = "User A",
+                Mobile = "1234567890",
+                PasswordHash = "hash",
+                CustomApiKey = "sk_user_a_private_key_123456"
+            };
+
+            var currentUserServiceMock = new Mock<ICurrentUserService>();
+            currentUserServiceMock.Setup(c => c.UserId).Returns(userId);
+
+            var userRepoMock = new Mock<IRepository<User>>();
+            userRepoMock.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(userWithCustomKey);
+
+            var uowMock = new Mock<IUnitOfWork>();
+            uowMock.Setup(u => u.Repository<User>()).Returns(userRepoMock.Object);
+
+            string? capturedKey = null;
+            var jsonResponse = @"{ ""transcript"": ""Hello from user A"" }";
+            var handler = new MockHttpMessageHandler(jsonResponse, HttpStatusCode.OK, req =>
+            {
+                if (req.Headers.TryGetValues("api-subscription-key", out var values))
+                {
+                    capturedKey = values.FirstOrDefault();
+                }
+            });
+
+            var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://api.sarvam.ai") };
+            var sut = new SarvamApiService(httpClient, Options.Create(_options), NullLogger<SarvamApiService>.Instance, currentUserServiceMock.Object, uowMock.Object);
+
+            // Act
+            var result = await sut.TranscribeAudioAsync(tempFile);
+
+            // Assert: It used User A's unique key, NOT the system key
+            capturedKey.Should().Be("sk_user_a_private_key_123456");
+            result.Should().HaveCount(1);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task TranscribeAudio_WhenUserHasNoCustomApiKey_FallsBackToSystemKey()
+    {
+        var tempFile = Path.GetTempFileName();
+        await File.WriteAllBytesAsync(tempFile, new byte[100]);
+
+        try
+        {
+            var userId = Guid.NewGuid();
+            var userWithNoKey = new User
+            {
+                Id = userId,
+                Email = "user_b@test.com",
+                Name = "User B",
+                Mobile = "1234567890",
+                PasswordHash = "hash",
+                CustomApiKey = null // No custom key configured
+            };
+
+            var currentUserServiceMock = new Mock<ICurrentUserService>();
+            currentUserServiceMock.Setup(c => c.UserId).Returns(userId);
+
+            var userRepoMock = new Mock<IRepository<User>>();
+            userRepoMock.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(userWithNoKey);
+
+            var uowMock = new Mock<IUnitOfWork>();
+            uowMock.Setup(u => u.Repository<User>()).Returns(userRepoMock.Object);
+
+            string? capturedKey = null;
+            var jsonResponse = @"{ ""transcript"": ""Hello from user B"" }";
+            var handler = new MockHttpMessageHandler(jsonResponse, HttpStatusCode.OK, req =>
+            {
+                if (req.Headers.TryGetValues("api-subscription-key", out var values))
+                {
+                    capturedKey = values.FirstOrDefault();
+                }
+            });
+
+            var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://api.sarvam.ai") };
+            var sut = new SarvamApiService(httpClient, Options.Create(_options), NullLogger<SarvamApiService>.Instance, currentUserServiceMock.Object, uowMock.Object);
+
+            // Act
+            var result = await sut.TranscribeAudioAsync(tempFile);
+
+            // Assert: User B without custom key uses the system default key
+            capturedKey.Should().Be(_options.ApiKey);
+            result.Should().HaveCount(1);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
     }
 
     private class MockHttpMessageHandler : HttpMessageHandler

@@ -53,9 +53,14 @@
                         <span class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 text-xs flex items-center justify-center font-bold">1</span>
                         Authentication
                     </h2>
-                    <button id="quickLoginBtn" onclick="quickLogin()" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium px-2.5 py-1 rounded-md transition flex items-center gap-1">
-                        <i class="fa-solid fa-bolt text-amber-500"></i> Quick Admin Login
-                    </button>
+                    <div class="flex items-center gap-1.5">
+                        <button id="quickLoginBtn" onclick="quickLogin()" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium px-2.5 py-1 rounded-md transition flex items-center gap-1">
+                            <i class="fa-solid fa-user-shield text-indigo-600"></i> Admin
+                        </button>
+                        <button id="quickDemoBtn" onclick="quickDemoLogin()" class="text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 font-medium px-2.5 py-1 rounded-md transition flex items-center gap-1">
+                            <i class="fa-solid fa-user text-amber-600"></i> Demo User
+                        </button>
+                    </div>
                 </div>
 
                 <div class="space-y-3 text-sm">
@@ -73,11 +78,59 @@
                 </div>
             </div>
 
-            <!-- Step 2: Upload / Record Audio -->
+            <!-- Step 2: Sarvam API Key Configuration (BYOK vs Purchased/System) -->
             <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-4">
                 <div class="flex items-center justify-between">
                     <h2 class="font-semibold text-slate-800 flex items-center gap-2">
                         <span class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 text-xs flex items-center justify-center font-bold">2</span>
+                        Sarvam API Key
+                    </h2>
+                    <div id="activeKeyBadge" class="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> System Default
+                    </div>
+                </div>
+
+                <div class="space-y-3 text-xs">
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="font-medium text-slate-600">Enter Custom API Key</label>
+                            <a href="https://dashboard.sarvam.ai" target="_blank" class="text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1">
+                                <i class="fa-solid fa-cart-shopping"></i> Buy / Get Key <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+                            </a>
+                        </div>
+                        <div class="relative">
+                            <input id="customApiKeyInput" type="password" placeholder="sk_..." class="w-full pl-3 pr-8 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-700 bg-slate-50 border-slate-200 font-mono text-xs">
+                            <button type="button" onclick="toggleKeyVisibility()" class="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600">
+                                <i id="eyeIcon" class="fa-regular fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between text-xs text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                        <div class="truncate">
+                            <span class="text-slate-400">Current Key:</span>
+                            <span id="currentMaskedKeyDisplay" class="font-mono font-semibold text-slate-700 ml-1">System Default</span>
+                        </div>
+                        <span id="keySourceBadge" class="text-[11px] bg-slate-200 text-slate-700 px-2 py-0.5 rounded-md font-medium">System</span>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2 pt-1">
+                        <button id="saveKeyBtn" onclick="saveApiKey()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 rounded-lg transition text-xs flex items-center justify-center gap-1.5 shadow-sm">
+                            <i class="fa-solid fa-shield-check"></i> Validate & Save Key
+                        </button>
+                        <button id="deleteKeyBtn" onclick="deleteApiKey()" class="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold py-2 rounded-lg transition text-xs flex items-center justify-center gap-1.5">
+                            <i class="fa-solid fa-trash-can text-rose-600"></i> Delete Custom Key
+                        </button>
+                    </div>
+                    <div id="keyActionStatus" class="hidden text-xs p-2.5 rounded-lg font-medium"></div>
+                </div>
+            </div>
+
+            <!-- Step 3: Upload / Record Audio -->
+            <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-4">
+                <div class="flex items-center justify-between">
+                    <h2 class="font-semibold text-slate-800 flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 text-xs flex items-center justify-center font-bold">3</span>
                         Audio Recording
                     </h2>
                 </div>
@@ -344,9 +397,10 @@
         let currentRecordingId = null;
 
         // Init
-        window.addEventListener('DOMContentLoaded', () => {
+        window.addEventListener('DOMContentLoaded', async () => {
             if (jwtToken) {
                 updateAuthStatus(true);
+                await loadApiKeyStatus();
             }
         });
 
@@ -358,6 +412,183 @@
             } else {
                 badge.className = 'bg-rose-500/20 text-rose-200 border border-rose-500/40 text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5';
                 badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> Not Authenticated';
+            }
+        }
+
+        async function loadApiKeyStatus() {
+            if (!jwtToken) return;
+            try {
+                const res = await fetch('/api/Users/api-key', {
+                    headers: { 'Authorization': `Bearer ${jwtToken}` }
+                });
+                const data = await res.json();
+                if (res.ok && data.success && data.data) {
+                    const info = data.data;
+                    const badge = document.getElementById('activeKeyBadge');
+                    const maskedDisplay = document.getElementById('currentMaskedKeyDisplay');
+                    const sourceBadge = document.getElementById('keySourceBadge');
+
+                    if (info.has_custom_key) {
+                        badge.className = 'text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1';
+                        badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-indigo-500"></span> Custom User Key';
+                        maskedDisplay.textContent = info.masked_key || 'Custom Key Active';
+                        sourceBadge.textContent = 'Custom';
+                        sourceBadge.className = 'text-[11px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md font-medium';
+                    } else {
+                        badge.className = 'text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1';
+                        badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> System Default';
+                        maskedDisplay.textContent = info.masked_key || 'System Default';
+                        sourceBadge.textContent = 'System';
+                        sourceBadge.className = 'text-[11px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-md font-medium';
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to load API key status:', err);
+            }
+        }
+
+        async function validateApiKey() {
+            if (!jwtToken) {
+                alert('Please sign in first.');
+                return;
+            }
+            const apiKey = document.getElementById('customApiKeyInput').value.trim();
+            if (!apiKey) {
+                alert('Please enter an API key to test.');
+                return;
+            }
+
+            const btn = document.getElementById('testKeyBtn');
+            const statusDiv = document.getElementById('keyActionStatus');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Testing...';
+            statusDiv.className = 'hidden';
+
+            try {
+                const res = await fetch('/api/Users/api-key/validate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${jwtToken}`
+                    },
+                    body: JSON.stringify({ api_key: apiKey })
+                });
+                const data = await res.json();
+                statusDiv.classList.remove('hidden');
+                if (res.ok && data.success && data.data?.is_valid) {
+                    statusDiv.className = 'text-xs p-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200';
+                    statusDiv.innerHTML = '<i class="fa-solid fa-circle-check text-emerald-600 mr-1"></i> Key is valid and active on Sarvam AI!';
+                } else {
+                    statusDiv.className = 'text-xs p-2 rounded-lg bg-rose-50 text-rose-700 border border-rose-200';
+                    statusDiv.innerHTML = `<i class="fa-solid fa-circle-xmark text-rose-600 mr-1"></i> ${data.message || 'Key is invalid or unauthorized.'}`;
+                }
+            } catch (err) {
+                statusDiv.classList.remove('hidden');
+                statusDiv.className = 'text-xs p-2 rounded-lg bg-rose-50 text-rose-700 border border-rose-200';
+                statusDiv.innerHTML = `<i class="fa-solid fa-circle-xmark text-rose-600 mr-1"></i> Test error: ${err.message}`;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-vial text-amber-500"></i> Test Key';
+            }
+        }
+
+        async function saveApiKey() {
+            if (!jwtToken) {
+                alert('Please sign in first.');
+                return;
+            }
+            const apiKey = document.getElementById('customApiKeyInput').value.trim();
+            if (!apiKey) {
+                alert('Please enter an API key to validate and save.');
+                return;
+            }
+
+            const btn = document.getElementById('saveKeyBtn');
+            const statusDiv = document.getElementById('keyActionStatus');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Validating & Saving...';
+            statusDiv.className = 'hidden';
+
+            try {
+                const res = await fetch('/api/Users/api-key', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${jwtToken}`
+                    },
+                    body: JSON.stringify({ api_key: apiKey, validate: true })
+                });
+                const data = await res.json();
+                statusDiv.classList.remove('hidden');
+                if (res.ok && data.success) {
+                    statusDiv.className = 'text-xs p-2.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200';
+                    statusDiv.innerHTML = '<i class="fa-solid fa-circle-check text-emerald-600 mr-1"></i> API Key is valid and saved to your account in DB!';
+                    document.getElementById('customApiKeyInput').value = '';
+                    await loadApiKeyStatus();
+                } else {
+                    statusDiv.className = 'text-xs p-2.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200';
+                    statusDiv.innerHTML = `<i class="fa-solid fa-circle-xmark text-rose-600 mr-1"></i> ${data.message || 'The provided Sarvam API key is invalid or unauthorized.'}`;
+                }
+            } catch (err) {
+                statusDiv.classList.remove('hidden');
+                statusDiv.className = 'text-xs p-2.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200';
+                statusDiv.innerHTML = `<i class="fa-solid fa-circle-xmark text-rose-600 mr-1"></i> Error: ${err.message}`;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-shield-check mr-1"></i> Validate & Save Key';
+            }
+        }
+
+        async function deleteApiKey() {
+            if (!jwtToken) {
+                alert('Please sign in first.');
+                return;
+            }
+            if (!confirm('Are you sure you want to delete your custom API key and revert back to the system default / purchased key?')) {
+                return;
+            }
+
+            const btn = document.getElementById('deleteKeyBtn');
+            const statusDiv = document.getElementById('keyActionStatus');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Deleting...';
+            statusDiv.className = 'hidden';
+
+            try {
+                const res = await fetch('/api/Users/api-key', {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${jwtToken}` }
+                });
+                const data = await res.json();
+                statusDiv.classList.remove('hidden');
+                if (res.ok && data.success) {
+                    statusDiv.className = 'text-xs p-2.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200';
+                    statusDiv.innerHTML = '<i class="fa-solid fa-trash-can text-emerald-600 mr-1"></i> Custom API key deleted from database! Active key reverted to System Default.';
+                    document.getElementById('customApiKeyInput').value = '';
+                    await loadApiKeyStatus();
+                } else {
+                    statusDiv.className = 'text-xs p-2.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200';
+                    statusDiv.innerHTML = `<i class="fa-solid fa-circle-xmark text-rose-600 mr-1"></i> ${data.message || 'Failed to delete API key.'}`;
+                }
+            } catch (err) {
+                statusDiv.classList.remove('hidden');
+                statusDiv.className = 'text-xs p-2.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200';
+                statusDiv.innerHTML = `<i class="fa-solid fa-circle-xmark text-rose-600 mr-1"></i> Delete error: ${err.message}`;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-trash-can text-rose-600 mr-1"></i> Delete Custom Key';
+            }
+        }
+
+        function toggleKeyVisibility() {
+            const input = document.getElementById('customApiKeyInput');
+            const icon = document.getElementById('eyeIcon');
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.className = 'fa-regular fa-eye-slash';
+            } else {
+                input.type = 'password';
+                icon.className = 'fa-regular fa-eye';
             }
         }
 
@@ -376,7 +607,8 @@
                     jwtToken = data.data.token;
                     localStorage.setItem('mr_jwt', jwtToken);
                     updateAuthStatus(true);
-                    alert('Login successful! You can now upload recordings.');
+                    await loadApiKeyStatus();
+                    alert('Login successful! You can now configure your API key or upload recordings.');
                 } else {
                     alert('Login failed: ' + (data.message || 'Check credentials'));
                 }
@@ -388,6 +620,12 @@
         async function quickLogin() {
             document.getElementById('authEmail').value = 'admin@meetingrecorder.dev';
             document.getElementById('authPassword').value = 'Admin@123';
+            await login();
+        }
+
+        async function quickDemoLogin() {
+            document.getElementById('authEmail').value = 'demo@meetingrecorder.dev';
+            document.getElementById('authPassword').value = 'Demo@123';
             await login();
         }
 

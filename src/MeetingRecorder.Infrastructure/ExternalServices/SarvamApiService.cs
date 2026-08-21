@@ -439,40 +439,42 @@ public class SarvamApiService : ISarvamApiService
     public async Task<bool> ValidateApiKeyAsync(string apiKey, CancellationToken ct = default)
     {
         var cleanKey = apiKey?.Trim();
-        if (string.IsNullOrWhiteSpace(cleanKey))
+        if (string.IsNullOrWhiteSpace(cleanKey) || cleanKey.Length < 10)
             return false;
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/chat/completions");
+            var baseUrl = string.IsNullOrWhiteSpace(_options.BaseUrl) ? "https://api.sarvam.ai" : _options.BaseUrl.TrimEnd('/');
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/text-to-speech");
             request.Headers.Add("api-subscription-key", cleanKey);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", cleanKey);
 
             var payload = new
             {
-                model = string.IsNullOrWhiteSpace(_options.SummaryModel) ? "sarvam-105b" : _options.SummaryModel,
-                messages = new[]
-                {
-                    new { role = "user", content = "ping" }
-                },
-                max_tokens = 1
+                inputs = new[] { "hi" },
+                target_language_code = "en-IN",
+                speaker = "pooja",
+                model = "bulbul:v3"
             };
 
             request.Content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
 
-            var response = await _httpClient.SendAsync(request, ct);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
 
-            if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
+            var response = await _httpClient.SendAsync(request, cts.Token);
+
+            if (response.IsSuccessStatusCode)
             {
-                return false;
+                return true;
             }
 
-            return true;
+            _logger.LogWarning("Sarvam API key validation failed with status {StatusCode}", response.StatusCode);
+            return false;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error while validating Sarvam API key against external service.");
-            return cleanKey.Length >= 8;
+            return false;
         }
     }
 
