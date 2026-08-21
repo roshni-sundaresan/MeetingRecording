@@ -97,4 +97,76 @@ public class UserServiceTests
         _repo.Verify(r => r.Update(alice), Times.Once);
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Fact]
+    public async Task SetApiKey_WhenValidKey_UpdatesUserAndReturnsMaskedStatus()
+    {
+        var alice = NewUser("Alice", "alice@test.com", "1111111111");
+        _repo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(alice);
+
+        var result = await CreateSut().SetApiKeyAsync(alice.Id, new SetApiKeyRequest("sk_live_1234567890abcdef"));
+
+        result.HasCustomKey.Should().BeTrue();
+        result.KeySource.Should().Be("custom");
+        result.MaskedKey.Should().NotBeNull();
+        result.MaskedKey.Should().Contain("****");
+        alice.CustomApiKey.Should().Be("sk_live_1234567890abcdef");
+        alice.UpdatedDate.Should().NotBeNull();
+        _repo.Verify(r => r.Update(alice), Times.Once);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SetApiKey_WithValidationFailure_ThrowsAppException()
+    {
+        var alice = NewUser("Alice", "alice@test.com", "1111111111");
+        _repo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(alice);
+
+        var mockSarvam = new Mock<ISarvamApiService>();
+        mockSarvam.Setup(s => s.ValidateApiKeyAsync("sk_invalid_key", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var sut = new UserService(_uow.Object, _mapper, _hasher.Object, mockSarvam.Object);
+
+        var act = () => sut.SetApiKeyAsync(alice.Id, new SetApiKeyRequest("sk_invalid_key", Validate: true));
+
+        await act.Should().ThrowAsync<AppException>().WithMessage("*invalid or unauthorized*");
+    }
+
+    [Fact]
+    public async Task GetApiKeyStatus_WhenNoCustomKey_ReturnsSystemSource()
+    {
+        var alice = NewUser("Alice", "alice@test.com", "1111111111");
+        alice.CustomApiKey = null;
+        _repo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(alice);
+
+        var result = await CreateSut().GetApiKeyStatusAsync(alice.Id);
+
+        result.HasCustomKey.Should().BeFalse();
+        result.KeySource.Should().Be("system");
+        result.MaskedKey.Should().BeNull();
+        result.IsSystemKeyConfigured.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ResetApiKey_ClearsCustomKey_ReturnsSystemSource()
+    {
+        var alice = NewUser("Alice", "alice@test.com", "1111111111");
+        alice.CustomApiKey = "sk_custom_123456";
+        _repo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(alice);
+
+        var result = await CreateSut().ResetApiKeyAsync(alice.Id);
+
+        result.HasCustomKey.Should().BeFalse();
+        result.KeySource.Should().Be("system");
+        result.MaskedKey.Should().BeNull();
+        alice.CustomApiKey.Should().BeNull();
+        alice.UpdatedDate.Should().NotBeNull();
+        _repo.Verify(r => r.Update(alice), Times.Once);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
 }

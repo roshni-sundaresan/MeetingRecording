@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -5,6 +6,7 @@ using System.Text.Json.Serialization;
 using MeetingRecorder.Application.DTOs;
 using MeetingRecorder.Application.Exceptions;
 using MeetingRecorder.Application.Interfaces;
+using MeetingRecorder.Domain.Entities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -15,6 +17,8 @@ public class SarvamApiService : ISarvamApiService
     private readonly HttpClient _httpClient;
     private readonly SarvamOptions _options;
     private readonly ILogger<SarvamApiService> _logger;
+    private readonly ICurrentUserService? _currentUserService;
+    private readonly IUnitOfWork? _uow;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -22,11 +26,18 @@ public class SarvamApiService : ISarvamApiService
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
     };
 
-    public SarvamApiService(HttpClient httpClient, IOptions<SarvamOptions> options, ILogger<SarvamApiService> logger)
+    public SarvamApiService(
+        HttpClient httpClient,
+        IOptions<SarvamOptions> options,
+        ILogger<SarvamApiService> logger,
+        ICurrentUserService? currentUserService = null,
+        IUnitOfWork? uow = null)
     {
         _httpClient = httpClient;
         _options = options.Value;
         _logger = logger;
+        _currentUserService = currentUserService;
+        _uow = uow;
 
         if (!string.IsNullOrWhiteSpace(_options.BaseUrl))
         {
@@ -34,8 +45,12 @@ public class SarvamApiService : ISarvamApiService
         }
     }
 
-    public async Task<IReadOnlyList<TranscriptLineDto>> TranscribeAudioAsync(
+    public Task<IReadOnlyList<TranscriptLineDto>> TranscribeAudioAsync(
         string filePath, string? languageCode = null, CancellationToken ct = default)
+        => TranscribeAudioAsync(filePath, languageCode, null, ct);
+
+    public async Task<IReadOnlyList<TranscriptLineDto>> TranscribeAudioAsync(
+        string filePath, string? languageCode, string? apiKeyOverride, CancellationToken ct = default)
     {
         var resolvedPath = string.IsNullOrWhiteSpace(filePath)
             ? string.Empty
@@ -46,14 +61,16 @@ public class SarvamApiService : ISarvamApiService
             throw new NotFoundException("Audio file for transcription", filePath ?? string.Empty);
         }
 
-        var apiKey = GetEffectiveApiKey();
+        var apiKey = await GetEffectiveApiKeyAsync(apiKeyOverride, ct);
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             _logger.LogWarning("Sarvam API key is not configured. Returning empty transcript.");
             return Array.Empty<TranscriptLineDto>();
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/speech-to-text");
+        var baseUrl = string.IsNullOrWhiteSpace(_options.BaseUrl) ? "https://api.sarvam.ai" : _options.BaseUrl.TrimEnd('/');
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/speech-to-text");
         request.Headers.Add("api-subscription-key", apiKey);
 
         using var content = new MultipartFormDataContent();
@@ -62,36 +79,244 @@ public class SarvamApiService : ISarvamApiService
         streamContent.Headers.ContentType = new MediaTypeHeaderValue(GetContentType(resolvedPath));
 
         content.Add(streamContent, "file", Path.GetFileName(resolvedPath));
+        var normalizedLang = NormalizeLanguageCode(languageCode);
         content.Add(new StringContent(string.IsNullOrWhiteSpace(_options.SttModel) ? "saaras:v3" : _options.SttModel), "model");
-        content.Add(new StringContent(string.IsNullOrWhiteSpace(languageCode) ? _options.LanguageCode : languageCode), "language_code");
+        content.Add(new StringContent(normalizedLang), "language_code");
 
         request.Content = content;
 
-        _logger.LogInformation("Sending STT request to Sarvam AI for file {FilePath}", resolvedPath);
-        var response = await _httpClient.SendAsync(request, ct);
-        var responseJson = await response.Content.ReadAsStringAsync(ct);
-
-        if (!response.IsSuccessStatusCode)
+        try
         {
-            _logger.LogError("Sarvam STT failed with status {StatusCode}: {Response}", response.StatusCode, responseJson);
-            throw new AppException($"Sarvam STT failed with status code {response.StatusCode}.", (int)response.StatusCode, "SARVAM_STT_ERROR");
+            _logger.LogInformation("Sending REST STT request to Sarvam AI for file {FilePath} (Language: {Language})", resolvedPath, normalizedLang);
+            var response = await _httpClient.SendAsync(request, ct);
+            var responseJson = await response.Content.ReadAsStringAsync(ct);
+
+            if (response.IsSuccessStatusCode)
+            {
+                return ParseSttResponse(responseJson);
+            }
+
+            _logger.LogWarning("Sarvam REST STT returned status {StatusCode}: {Response}. Falling back to Sarvam Batch STT API.", response.StatusCode, responseJson);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Sarvam REST STT encountered an error. Falling back to Sarvam Batch STT API.");
         }
 
-        return ParseSttResponse(responseJson);
+        // Fallback to Batch STT API (handles long-form audio up to 2 hours with speaker diarization)
+        return await TranscribeAudioBatchAsync(resolvedPath, normalizedLang, apiKey, ct);
     }
 
-    public async Task<string?> SummarizeTranscriptAsync(
+    private async Task<IReadOnlyList<TranscriptLineDto>> TranscribeAudioBatchAsync(
+        string resolvedPath, string languageCode, string apiKey, CancellationToken ct)
+    {
+        var baseUrl = string.IsNullOrWhiteSpace(_options.BaseUrl) ? "https://api.sarvam.ai" : _options.BaseUrl.TrimEnd('/');
+        _logger.LogInformation("Starting Sarvam Batch STT job for file {FilePath} (Language: {Language})", resolvedPath, languageCode);
+
+        // 1. Initialize Batch Job
+        using var createRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/speech-to-text/job/v1");
+        createRequest.Headers.Add("api-subscription-key", apiKey);
+        var createPayload = new
+        {
+            job_parameters = new
+            {
+                language_code = languageCode,
+                model = string.IsNullOrWhiteSpace(_options.SttModel) ? "saaras:v3" : _options.SttModel,
+                with_diarization = true
+            }
+        };
+        createRequest.Content = new StringContent(JsonSerializer.Serialize(createPayload), Encoding.UTF8, "application/json");
+
+        var createResponse = await _httpClient.SendAsync(createRequest, ct);
+        var createJson = await createResponse.Content.ReadAsStringAsync(ct);
+        if (!createResponse.IsSuccessStatusCode)
+        {
+            _logger.LogError("Sarvam Batch STT job initialization failed with status {StatusCode}: {Response}", createResponse.StatusCode, createJson);
+            throw new AppException($"Failed to initialize Sarvam batch STT job: {createJson}", (int)createResponse.StatusCode, "SARVAM_BATCH_INIT_ERROR");
+        }
+
+        using var createDoc = JsonDocument.Parse(createJson);
+        if (!createDoc.RootElement.TryGetProperty("job_id", out var jobIdProp))
+        {
+            throw new AppException("No job_id returned in Sarvam Batch STT initialization response.", 500, "SARVAM_BATCH_INVALID_JOB_ID");
+        }
+        var jobId = jobIdProp.GetString()!;
+        var fileName = Path.GetFileName(resolvedPath);
+
+        // 2. Request presigned upload URL
+        using var uploadRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/speech-to-text/job/v1/upload-files");
+        uploadRequest.Headers.Add("api-subscription-key", apiKey);
+        var uploadPayload = new
+        {
+            job_id = jobId,
+            files = new[] { fileName }
+        };
+        uploadRequest.Content = new StringContent(JsonSerializer.Serialize(uploadPayload), Encoding.UTF8, "application/json");
+
+        var uploadResponse = await _httpClient.SendAsync(uploadRequest, ct);
+        var uploadJson = await uploadResponse.Content.ReadAsStringAsync(ct);
+        if (!uploadResponse.IsSuccessStatusCode)
+        {
+            _logger.LogError("Sarvam Batch STT upload-files failed with status {StatusCode}: {Response}", uploadResponse.StatusCode, uploadJson);
+            throw new AppException($"Failed to obtain Sarvam batch upload URL: {uploadJson}", (int)uploadResponse.StatusCode, "SARVAM_BATCH_UPLOAD_URL_ERROR");
+        }
+
+        using var uploadDoc = JsonDocument.Parse(uploadJson);
+        string? fileUploadUrl = null;
+        if (uploadDoc.RootElement.TryGetProperty("upload_urls", out var uploadUrls) && uploadUrls.TryGetProperty(fileName, out var fileEntry))
+        {
+            if (fileEntry.TryGetProperty("file_url", out var fuProp))
+            {
+                fileUploadUrl = fuProp.GetString();
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(fileUploadUrl))
+        {
+            throw new AppException("No file_url returned for Sarvam batch upload.", 500, "SARVAM_BATCH_NO_UPLOAD_URL");
+        }
+
+        // 3. Upload audio file stream to Azure Blob
+        using (var putRequest = new HttpRequestMessage(HttpMethod.Put, fileUploadUrl))
+        {
+            putRequest.Headers.Add("x-ms-blob-type", "BlockBlob");
+            await using var fileStream = File.OpenRead(resolvedPath);
+            putRequest.Content = new StreamContent(fileStream);
+            putRequest.Content.Headers.ContentType = new MediaTypeHeaderValue(GetContentType(resolvedPath));
+
+            using var putClient = new HttpClient();
+            var putResponse = await putClient.SendAsync(putRequest, ct);
+            if (!putResponse.IsSuccessStatusCode)
+            {
+                var putErr = await putResponse.Content.ReadAsStringAsync(ct);
+                _logger.LogError("Failed to upload audio to Sarvam Azure Blob ({StatusCode}): {Response}", putResponse.StatusCode, putErr);
+                throw new AppException($"Failed to upload audio to Sarvam storage: {putResponse.StatusCode}", (int)putResponse.StatusCode, "SARVAM_BATCH_BLOB_UPLOAD_ERROR");
+            }
+        }
+
+        // 4. Start the Batch Job
+        using var startRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/speech-to-text/job/v1/{jobId}/start");
+        startRequest.Headers.Add("api-subscription-key", apiKey);
+        startRequest.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+
+        var startResponse = await _httpClient.SendAsync(startRequest, ct);
+        if (!startResponse.IsSuccessStatusCode)
+        {
+            var startErr = await startResponse.Content.ReadAsStringAsync(ct);
+            _logger.LogError("Sarvam Batch STT start failed ({StatusCode}): {Response}", startResponse.StatusCode, startErr);
+            throw new AppException($"Failed to start Sarvam batch job: {startErr}", (int)startResponse.StatusCode, "SARVAM_BATCH_START_ERROR");
+        }
+
+        // 5. Poll Job Status (timeout after 5 minutes)
+        var maxPollingTime = TimeSpan.FromMinutes(5);
+        var startTime = DateTime.UtcNow;
+        string? outputFileName = null;
+
+        while (DateTime.UtcNow - startTime < maxPollingTime && !ct.IsCancellationRequested)
+        {
+            await Task.Delay(2000, ct);
+
+            using var statusRequest = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/speech-to-text/job/v1/{jobId}/status");
+            statusRequest.Headers.Add("api-subscription-key", apiKey);
+
+            var statusResponse = await _httpClient.SendAsync(statusRequest, ct);
+            var statusJson = await statusResponse.Content.ReadAsStringAsync(ct);
+
+            if (statusResponse.IsSuccessStatusCode)
+            {
+                using var statusDoc = JsonDocument.Parse(statusJson);
+                var jobState = statusDoc.RootElement.TryGetProperty("job_state", out var js) ? js.GetString() : null;
+
+                if (string.Equals(jobState, "Completed", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (statusDoc.RootElement.TryGetProperty("job_details", out var jobDetails) && jobDetails.GetArrayLength() > 0)
+                    {
+                        var firstDetail = jobDetails[0];
+                        if (firstDetail.TryGetProperty("outputs", out var outputs) && outputs.GetArrayLength() > 0)
+                        {
+                            var firstOutput = outputs[0];
+                            if (firstOutput.TryGetProperty("file_name", out var fnProp))
+                            {
+                                outputFileName = fnProp.GetString();
+                            }
+                        }
+                    }
+                    break;
+                }
+                else if (string.Equals(jobState, "Failed", StringComparison.OrdinalIgnoreCase))
+                {
+                    var errMsg = statusDoc.RootElement.TryGetProperty("error_message", out var em) ? em.GetString() : "Unknown error";
+                    throw new AppException($"Sarvam batch STT job failed: {errMsg}", 500, "SARVAM_BATCH_JOB_FAILED");
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(outputFileName))
+        {
+            throw new AppException("Sarvam batch job timed out or did not produce an output file.", 504, "SARVAM_BATCH_TIMEOUT");
+        }
+
+        // 6. Get Download URL for output
+        using var dlRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/speech-to-text/job/v1/download-files");
+        dlRequest.Headers.Add("api-subscription-key", apiKey);
+        var dlPayload = new
+        {
+            job_id = jobId,
+            files = new[] { outputFileName }
+        };
+        dlRequest.Content = new StringContent(JsonSerializer.Serialize(dlPayload), Encoding.UTF8, "application/json");
+
+        var dlResponse = await _httpClient.SendAsync(dlRequest, ct);
+        var dlJson = await dlResponse.Content.ReadAsStringAsync(ct);
+        if (!dlResponse.IsSuccessStatusCode)
+        {
+            _logger.LogError("Sarvam Batch STT download-files failed ({StatusCode}): {Response}", dlResponse.StatusCode, dlJson);
+            throw new AppException($"Failed to get download URL for Sarvam batch results: {dlJson}", (int)dlResponse.StatusCode, "SARVAM_BATCH_DOWNLOAD_URL_ERROR");
+        }
+
+        using var dlDoc = JsonDocument.Parse(dlJson);
+        string? resultDownloadUrl = null;
+        if (dlDoc.RootElement.TryGetProperty("download_urls", out var dlUrls) && dlUrls.TryGetProperty(outputFileName, out var dlEntry))
+        {
+            if (dlEntry.TryGetProperty("file_url", out var fu))
+            {
+                resultDownloadUrl = fu.GetString();
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(resultDownloadUrl))
+        {
+            throw new AppException("No download URL returned for Sarvam batch transcript.", 500, "SARVAM_BATCH_NO_RESULT_URL");
+        }
+
+        // 7. Download result JSON
+        using var resultClient = new HttpClient();
+        var transcriptResultJson = await resultClient.GetStringAsync(resultDownloadUrl, ct);
+
+        _logger.LogInformation("Successfully received Sarvam Batch STT transcript for job {JobId}", jobId);
+        return ParseSttResponse(transcriptResultJson);
+    }
+
+    public Task<string?> SummarizeTranscriptAsync(
         IReadOnlyList<TranscriptLineDto> lines, string? languageCode = null, CancellationToken ct = default)
+        => SummarizeTranscriptAsync(lines, languageCode, null, ct);
+
+    public async Task<string?> SummarizeTranscriptAsync(
+        IReadOnlyList<TranscriptLineDto> lines, string? languageCode, string? apiKeyOverride, CancellationToken ct = default)
     {
         if (lines == null || lines.Count == 0)
             return null;
 
         var fullText = string.Join("\n", lines.Select(l => $"{l.Speaker}: {l.Text}")).Trim();
-        return await SummarizeTranscriptAsync(fullText, languageCode, ct);
+        return await SummarizeTranscriptAsync(fullText, languageCode, apiKeyOverride, ct);
     }
 
-    public async Task<string?> SummarizeTranscriptAsync(
+    public Task<string?> SummarizeTranscriptAsync(
         string transcriptText, string? languageCode = null, CancellationToken ct = default)
+        => SummarizeTranscriptAsync(transcriptText, languageCode, null, ct);
+
+    public async Task<string?> SummarizeTranscriptAsync(
+        string transcriptText, string? languageCode, string? apiKeyOverride, CancellationToken ct = default)
     {
         var cleanedText = transcriptText?.Trim();
         if (string.IsNullOrWhiteSpace(cleanedText))
@@ -99,7 +324,7 @@ public class SarvamApiService : ISarvamApiService
             return null;
         }
 
-        var apiKey = GetEffectiveApiKey();
+        var apiKey = await GetEffectiveApiKeyAsync(apiKeyOverride, ct);
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             _logger.LogWarning("Sarvam API key is not configured. Generating fallback summary from transcript.");
@@ -108,7 +333,8 @@ public class SarvamApiService : ISarvamApiService
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/chat/completions");
+            var baseUrl = string.IsNullOrWhiteSpace(_options.BaseUrl) ? "https://api.sarvam.ai" : _options.BaseUrl.TrimEnd('/');
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/v1/chat/completions");
             request.Headers.Add("api-subscription-key", apiKey);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
@@ -132,18 +358,21 @@ public class SarvamApiService : ISarvamApiService
                     new { role = "user", content = userPrompt }
                 },
                 temperature = 0.3,
-                max_tokens = 1500
+                max_tokens = 2048
             };
 
             request.Content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
 
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(50));
+
             _logger.LogInformation("Sending MOM/Summary chat completion request to Sarvam AI with model {Model} for transcript length {Length}", model, cleanedText.Length);
-            var response = await _httpClient.SendAsync(request, ct);
-            var responseJson = await response.Content.ReadAsStringAsync(ct);
+            var response = await _httpClient.SendAsync(request, cts.Token);
+            var responseJson = await response.Content.ReadAsStringAsync(cts.Token);
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("Sarvam chat completion summary returned status {StatusCode}: {Response}. Using fallback summary.", response.StatusCode, responseJson);
+                _logger.LogWarning("Sarvam chat completion summary returned status {StatusCode}: {Response}. Using structured fallback MOM.", response.StatusCode, responseJson);
                 return GenerateFallbackSummary(cleanedText);
             }
 
@@ -157,13 +386,17 @@ public class SarvamApiService : ISarvamApiService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Exception while generating summary via Sarvam AI. Using fallback summary.");
+            _logger.LogWarning(ex, "Exception while generating summary via Sarvam AI. Using structured fallback MOM.");
             return GenerateFallbackSummary(cleanedText);
         }
     }
 
-    public async Task<string> SynthesizeTextToSpeechAsync(
+    public Task<string> SynthesizeTextToSpeechAsync(
         string text, string? languageCode = null, CancellationToken ct = default)
+        => SynthesizeTextToSpeechAsync(text, languageCode, null, ct);
+
+    public async Task<string> SynthesizeTextToSpeechAsync(
+        string text, string? languageCode, string? apiKeyOverride, CancellationToken ct = default)
     {
         var cleanedText = text?.Trim();
         if (string.IsNullOrWhiteSpace(cleanedText))
@@ -171,7 +404,7 @@ public class SarvamApiService : ISarvamApiService
             throw new AppException("Text is required for TTS synthesis.", 400, "VALIDATION_ERROR");
         }
 
-        var apiKey = GetEffectiveApiKey();
+        var apiKey = await GetEffectiveApiKeyAsync(apiKeyOverride, ct);
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             throw new AppException("Sarvam API key is not configured on the server.", 500, "SARVAM_KEY_MISSING");
@@ -203,11 +436,80 @@ public class SarvamApiService : ISarvamApiService
         return ExtractAudioBase64(responseJson);
     }
 
-    private string GetEffectiveApiKey()
+    public async Task<bool> ValidateApiKeyAsync(string apiKey, CancellationToken ct = default)
     {
-        // Allow environment variable override
+        var cleanKey = apiKey?.Trim();
+        if (string.IsNullOrWhiteSpace(cleanKey))
+            return false;
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/chat/completions");
+            request.Headers.Add("api-subscription-key", cleanKey);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", cleanKey);
+
+            var payload = new
+            {
+                model = string.IsNullOrWhiteSpace(_options.SummaryModel) ? "sarvam-105b" : _options.SummaryModel,
+                messages = new[]
+                {
+                    new { role = "user", content = "ping" }
+                },
+                max_tokens = 1
+            };
+
+            request.Content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.SendAsync(request, ct);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error while validating Sarvam API key against external service.");
+            return cleanKey.Length >= 8;
+        }
+    }
+
+    private async Task<string> GetEffectiveApiKeyAsync(string? apiKeyOverride = null, CancellationToken ct = default)
+    {
+        // 1. Explicit override passed by caller
+        if (!string.IsNullOrWhiteSpace(apiKeyOverride) && apiKeyOverride.Trim().Length >= 10)
+        {
+            return apiKeyOverride.Trim();
+        }
+
+        // 2. Check if current authenticated user has a custom API key
+        if (_currentUserService?.UserId is Guid userId && _uow is not null)
+        {
+            try
+            {
+                var user = await _uow.Repository<User>().FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, ct);
+                if (!string.IsNullOrWhiteSpace(user?.CustomApiKey) && user.CustomApiKey.Trim().Length >= 10)
+                {
+                    return user.CustomApiKey.Trim();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to retrieve custom API key for user {UserId}. Falling back to system default.", userId);
+            }
+        }
+
+        // 3. Environment variable override
         var envKey = Environment.GetEnvironmentVariable("SARVAM_API_KEY");
-        return !string.IsNullOrWhiteSpace(envKey) ? envKey : _options.ApiKey;
+        if (!string.IsNullOrWhiteSpace(envKey) && envKey.Trim().Length >= 10)
+        {
+            return envKey.Trim();
+        }
+
+        // 4. Default configuration key
+        return _options.ApiKey?.Trim() ?? string.Empty;
     }
 
     private static IReadOnlyList<TranscriptLineDto> ParseSttResponse(string json)
@@ -356,6 +658,11 @@ public class SarvamApiService : ISarvamApiService
                         var text = content.GetString();
                         if (!string.IsNullOrWhiteSpace(text)) return text.Trim();
                     }
+                    if (message.TryGetProperty("reasoning_content", out var reasoning) && reasoning.ValueKind == JsonValueKind.String)
+                    {
+                        var text = reasoning.GetString();
+                        if (!string.IsNullOrWhiteSpace(text)) return text.Trim();
+                    }
                 }
                 if (firstChoice.TryGetProperty("text", out var choiceText) && choiceText.ValueKind == JsonValueKind.String)
                 {
@@ -383,28 +690,35 @@ public class SarvamApiService : ISarvamApiService
         if (string.IsNullOrWhiteSpace(transcriptText))
             return string.Empty;
 
-        var lines = transcriptText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries)
+        var rawLines = transcriptText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.RemoveEmptyEntries)
             .Select(l => l.Trim())
             .Where(l => !string.IsNullOrWhiteSpace(l))
             .ToList();
 
-        if (lines.Count == 0)
-            return transcriptText.Length > 250 ? transcriptText.Substring(0, 247) + "..." : transcriptText;
+        if (rawLines.Count == 0)
+            return transcriptText;
 
-        if (lines.Count == 1)
+        var cleanSentences = rawLines.Select(l => l.Contains(':') ? l.Split(':', 2)[1].Trim() : l)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .ToList();
+
+        var sb = new StringBuilder();
+        sb.AppendLine("### Minutes of Meeting (MOM)");
+        sb.AppendLine();
+        sb.AppendLine("**1. Executive Summary:**");
+        var overview = string.Join(" ", cleanSentences.Take(3));
+        sb.AppendLine(overview.Length > 300 ? overview.Substring(0, 297) + "..." : overview);
+        sb.AppendLine();
+        sb.AppendLine("**2. Key Discussion Points:**");
+        foreach (var item in cleanSentences.Take(5))
         {
-            var line = lines[0];
-            if (line.Contains(':'))
-            {
-                var parts = line.Split(':', 2);
-                line = parts[1].Trim();
-            }
-            return line.Length > 300 ? line.Substring(0, 297) + "..." : line;
+            sb.AppendLine($"- {item}");
         }
+        sb.AppendLine();
+        sb.AppendLine("**3. Action Items & Next Steps:**");
+        sb.AppendLine("- Review and follow up on key items and milestones from the discussion.");
 
-        var cleanSentences = lines.Select(l => l.Contains(':') ? l.Split(':', 2)[1].Trim() : l).ToList();
-        var firstFew = cleanSentences.Take(3);
-        return string.Join(" ", firstFew);
+        return sb.ToString().Trim();
     }
 
     private static string ExtractAudioBase64(string json)
@@ -456,5 +770,27 @@ public class SarvamApiService : ISarvamApiService
             ".wma" => "audio/x-ms-wma",
             _ => "application/octet-stream"
         };
+    }
+
+    private string NormalizeLanguageCode(string? languageCode)
+    {
+        if (string.IsNullOrWhiteSpace(languageCode))
+            return string.IsNullOrWhiteSpace(_options.LanguageCode) ? "en-IN" : _options.LanguageCode;
+
+        var code = languageCode.Trim().ToLowerInvariant();
+        if (code.StartsWith("en")) return "en-IN";
+        if (code.StartsWith("hi")) return "hi-IN";
+        if (code.StartsWith("bn")) return "bn-IN";
+        if (code.StartsWith("kn")) return "kn-IN";
+        if (code.StartsWith("ml")) return "ml-IN";
+        if (code.StartsWith("mr")) return "mr-IN";
+        if (code.StartsWith("od") || code.StartsWith("or")) return "od-IN";
+        if (code.StartsWith("pa")) return "pa-IN";
+        if (code.StartsWith("ta")) return "ta-IN";
+        if (code.StartsWith("te")) return "te-IN";
+        if (code.StartsWith("gu")) return "gu-IN";
+        if (code == "unknown") return "unknown";
+
+        return string.IsNullOrWhiteSpace(_options.LanguageCode) ? "en-IN" : _options.LanguageCode;
     }
 }

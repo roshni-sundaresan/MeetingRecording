@@ -1,5 +1,7 @@
 using MeetingRecorder.Application.DTOs;
 using MeetingRecorder.Application.DTOs.Common;
+using MeetingRecorder.Application.Exceptions;
+using MeetingRecorder.Application.Interfaces;
 using MeetingRecorder.Application.Services;
 using MeetingRecorder.WebApi.Common;
 using Microsoft.AspNetCore.Authorization;
@@ -65,5 +67,54 @@ public class UsersController : ApiControllerBase
         AccessPolicies.EnsureCanActOnUser(CurrentUser, id);
         await _userService.DeleteUserAsync(id, ct);
         return Ok("User deleted.");
+    }
+
+    /// <summary>Configure or replace custom Sarvam API key for current user (Option 1).</summary>
+    [HttpPost("api-key")]
+    [ProducesResponseType(typeof(ApiResponse<UserApiKeyStatusResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<UserApiKeyStatusResponse>>> SetApiKey([FromBody] SetApiKeyRequest request, CancellationToken ct)
+    {
+        var userId = CurrentUser.UserId ?? throw new AppException("User is not authenticated.", 401, "UNAUTHORIZED");
+        await ValidateAsync(request, ct);
+        var status = await _userService.SetApiKeyAsync(userId, request, ct);
+        return Envelope(status, "Custom API key configured successfully. Your key will now be used for AI features.");
+    }
+
+    /// <summary>Get current API key status (masked key and active key source: custom vs system).</summary>
+    [HttpGet("api-key")]
+    [ProducesResponseType(typeof(ApiResponse<UserApiKeyStatusResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<UserApiKeyStatusResponse>>> GetApiKeyStatus(CancellationToken ct)
+    {
+        var userId = CurrentUser.UserId ?? throw new AppException("User is not authenticated.", 401, "UNAUTHORIZED");
+        var status = await _userService.GetApiKeyStatusAsync(userId, ct);
+        return Envelope(status);
+    }
+
+    /// <summary>Remove custom API key and revert to system-managed / purchased Sarvam key (Option 2).</summary>
+    [HttpDelete("api-key")]
+    [ProducesResponseType(typeof(ApiResponse<UserApiKeyStatusResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<UserApiKeyStatusResponse>>> ResetApiKey(CancellationToken ct)
+    {
+        var userId = CurrentUser.UserId ?? throw new AppException("User is not authenticated.", 401, "UNAUTHORIZED");
+        var status = await _userService.ResetApiKeyAsync(userId, ct);
+        return Envelope(status, "API key reset to system default / purchased key.");
+    }
+
+    /// <summary>Validate a Sarvam API key without saving it.</summary>
+    [HttpPost("api-key/validate")]
+    [ProducesResponseType(typeof(ApiResponse<ValidateApiKeyResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<ValidateApiKeyResponse>>> ValidateApiKey(
+        [FromBody] ValidateApiKeyRequest request,
+        [FromServices] ISarvamApiService sarvamService,
+        CancellationToken ct)
+    {
+        await ValidateAsync(request, ct);
+        var isValid = await sarvamService.ValidateApiKeyAsync(request.ApiKey, ct);
+        var response = new ValidateApiKeyResponse(
+            IsValid: isValid,
+            Message: isValid ? "API key is valid." : "API key is invalid or unauthorized.");
+
+        return Envelope(response);
     }
 }

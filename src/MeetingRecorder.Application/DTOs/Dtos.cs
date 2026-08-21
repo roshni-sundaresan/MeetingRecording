@@ -43,6 +43,20 @@ public record CreateUserRequest(string Email, string Name, string Mobile, string
 
 public record UpdateUserRequest(string Name, string Mobile, string? ProfilePhotoUrl);
 
+// ---------- User API Key Settings (Option 1: Custom Key vs Option 2: Buy/System Key) ----------
+public record SetApiKeyRequest(string ApiKey, bool Validate = false);
+
+public record UserApiKeyStatusResponse(
+    bool HasCustomKey,
+    string? MaskedKey,
+    string KeySource,
+    bool IsSystemKeyConfigured,
+    DateTime? UpdatedDate = null);
+
+public record ValidateApiKeyRequest(string ApiKey);
+
+public record ValidateApiKeyResponse(bool IsValid, string? Message);
+
 // ---------- Structured content blocks (match the Flutter app's models) ----------
 public record TranscriptLineDto(
     string Speaker,

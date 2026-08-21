@@ -23,3 +23,25 @@ public class UpdateUserValidator : AbstractValidator<DTOs.UpdateUserRequest>
         RuleFor(x => x.ProfilePhotoUrl).MaximumLength(1000);
     }
 }
+
+public class SetApiKeyValidator : AbstractValidator<DTOs.SetApiKeyRequest>
+{
+    public SetApiKeyValidator()
+    {
+        RuleFor(x => x.ApiKey)
+            .NotEmpty().WithMessage("API key is required.")
+            .MinimumLength(8).WithMessage("API key must be at least 8 characters long.")
+            .MaximumLength(500).WithMessage("API key must not exceed 500 characters.");
+    }
+}
+
+public class ValidateApiKeyValidator : AbstractValidator<DTOs.ValidateApiKeyRequest>
+{
+    public ValidateApiKeyValidator()
+    {
+        RuleFor(x => x.ApiKey)
+            .NotEmpty().WithMessage("API key is required.")
+            .MinimumLength(8).WithMessage("API key must be at least 8 characters long.")
+            .MaximumLength(500).WithMessage("API key must not exceed 500 characters.");
+    }
+}

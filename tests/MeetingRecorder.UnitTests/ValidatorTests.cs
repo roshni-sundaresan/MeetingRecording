@@ -76,5 +76,20 @@ public class ValidatorTests
         (await new LoginValidator().ValidateAsync(new LoginRequest("a@b.com", "secret123"))).IsValid.Should().BeTrue();
         (await new RegisterValidator().ValidateAsync(new RegisterRequest("a@b.com", "Alice", "+91 90000 00000", "Passw0rd!", null))).IsValid.Should().BeTrue();
         (await new StartUploadValidator().ValidateAsync(new StartUploadRequest(Guid.NewGuid(), "meeting.mp4", RecordingType.Meeting, 4, "en", 400, null))).IsValid.Should().BeTrue();
+        (await new SetApiKeyValidator().ValidateAsync(new SetApiKeyRequest("sk_valid_key_12345678"))).IsValid.Should().BeTrue();
+        (await new ValidateApiKeyValidator().ValidateAsync(new ValidateApiKeyRequest("sk_valid_key_12345678"))).IsValid.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("short")]
+    public async Task SetApiKeyValidator_InvalidKey_Fails(string apiKey)
+    {
+        var validator = new SetApiKeyValidator();
+        var result = await validator.ValidateAsync(new SetApiKeyRequest(apiKey));
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(SetApiKeyRequest.ApiKey));
     }
 }

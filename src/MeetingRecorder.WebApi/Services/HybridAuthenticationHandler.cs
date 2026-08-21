@@ -44,7 +44,11 @@ public class HybridAuthenticationHandler : AuthenticationHandler<HybridAuthOptio
             || !authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
             return AuthenticateResult.NoResult();
 
-        var token = authorization["Bearer ".Length..].Trim();
+        var token = authorization["Bearer ".Length..].Trim().Trim('"');
+        if (token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            token = token["Bearer ".Length..].Trim().Trim('"');
+        }
         if (string.IsNullOrEmpty(token))
             return AuthenticateResult.NoResult();
 

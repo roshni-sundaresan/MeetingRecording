@@ -403,6 +403,90 @@ Form fields (camelCase! multipart binds to property names):
 // Response 200 — { "success": true, "message": "User deleted.", "data": null }
 ```
 
+### 22a. POST /api/Users/api-key  *(Bearer — Set / Replace Custom API Key, Option 1)*
+When the user enters their custom Sarvam API key in the frontend settings and clicks "Add", this endpoint saves the key for their account and immediately redirects all transcription (STT), MOM/summary generation, and text-to-speech (TTS) to use this custom key.
+
+```json
+// Request
+{
+  "api_key": "sk_live_1234567890abcdef",
+  "validate": true // optional: validates key with Sarvam AI before saving
+}
+
+// Response 200
+{
+  "success": true,
+  "message": "Custom API key configured successfully. Your key will now be used for AI features.",
+  "data": {
+    "has_custom_key": true,
+    "masked_key": "sk_live****cdef",
+    "key_source": "custom",
+    "is_system_key_configured": true,
+    "updated_date": "2026-08-20T15:10:00Z"
+  },
+  "status_code": 200
+}
+```
+
+### 22b. GET /api/Users/api-key  *(Bearer — Get API Key Status)*
+Retrieves whether the current user has configured a custom API key, the masked key representation, and the active source (`"custom"` vs `"system"`). Never leaks plain text keys.
+
+```json
+// Response 200
+{
+  "success": true,
+  "message": null,
+  "data": {
+    "has_custom_key": true,
+    "masked_key": "sk_live****cdef",
+    "key_source": "custom",
+    "is_system_key_configured": true,
+    "updated_date": "2026-08-20T15:10:00Z"
+  },
+  "status_code": 200
+}
+```
+
+### 22c. DELETE /api/Users/api-key  *(Bearer — Revert / Buy Sarvam Key, Option 2)*
+Clears the user's custom API key, reverting their account back to using the system-managed / purchased Sarvam key.
+
+```json
+// Response 200
+{
+  "success": true,
+  "message": "API key reset to system default / purchased key.",
+  "data": {
+    "has_custom_key": false,
+    "masked_key": null,
+    "key_source": "system",
+    "is_system_key_configured": true,
+    "updated_date": "2026-08-20T15:15:00Z"
+  },
+  "status_code": 200
+}
+```
+
+### 22d. POST /api/Users/api-key/validate  *(Bearer — Test / Validate API Key)*
+Tests whether an API key is valid against Sarvam AI without saving it.
+
+```json
+// Request
+{
+  "api_key": "sk_live_1234567890abcdef"
+}
+
+// Response 200
+{
+  "success": true,
+  "message": null,
+  "data": {
+    "is_valid": true,
+    "message": "API key is valid."
+  },
+  "status_code": 200
+}
+```
+
 ---
 ## 🤖 Sarvam AI Transcription & MOM / Summary
 

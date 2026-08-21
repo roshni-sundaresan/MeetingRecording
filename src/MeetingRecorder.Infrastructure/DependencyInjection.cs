@@ -46,7 +46,10 @@ public static class DependencyInjection
         services.AddScoped<IChunkStorageService, LocalChunkStorageService>();
         services.AddSingleton<IFirebaseAuthService, FirebaseAuthService>();
 
-        services.AddHttpClient<ISarvamApiService, ExternalServices.SarvamApiService>();
+        services.AddHttpClient<ISarvamApiService, ExternalServices.SarvamApiService>(client =>
+        {
+            client.Timeout = TimeSpan.FromMinutes(4);
+        });
 
         return services;
     }

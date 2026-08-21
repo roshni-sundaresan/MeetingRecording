@@ -14,6 +14,9 @@ public interface IUserService
     Task<UserResponse> CreateUserAsync(CreateUserRequest request, CancellationToken ct = default);
     Task<UserResponse> UpdateUserAsync(Guid id, UpdateUserRequest request, CancellationToken ct = default);
     Task DeleteUserAsync(Guid id, CancellationToken ct = default);
+    Task<UserApiKeyStatusResponse> SetApiKeyAsync(Guid userId, SetApiKeyRequest request, CancellationToken ct = default);
+    Task<UserApiKeyStatusResponse> GetApiKeyStatusAsync(Guid userId, CancellationToken ct = default);
+    Task<UserApiKeyStatusResponse> ResetApiKeyAsync(Guid userId, CancellationToken ct = default);
 }
 
 public class UserService : IUserService
@@ -21,12 +24,18 @@ public class UserService : IUserService
     private readonly IUnitOfWork _uow;
     private readonly IMapper _mapper;
     private readonly IPasswordHasher _passwordHasher;
+    private readonly ISarvamApiService? _sarvamApiService;
 
-    public UserService(IUnitOfWork uow, IMapper mapper, IPasswordHasher passwordHasher)
+    public UserService(
+        IUnitOfWork uow,
+        IMapper mapper,
+        IPasswordHasher passwordHasher,
+        ISarvamApiService? sarvamApiService = null)
     {
         _uow = uow;
         _mapper = mapper;
         _passwordHasher = passwordHasher;
+        _sarvamApiService = sarvamApiService;
     }
 
     public Task<PagedResult<UserResponse>> GetUsersAsync(QueryParameters query, CancellationToken ct = default)
@@ -133,5 +142,81 @@ public class UserService : IUserService
         }
 
         await _uow.SaveChangesAsync(ct);
+    }
+
+    public async Task<UserApiKeyStatusResponse> SetApiKeyAsync(Guid userId, SetApiKeyRequest request, CancellationToken ct = default)
+    {
+        var user = await _uow.Repository<User>().FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, ct)
+            ?? throw new NotFoundException(nameof(User), userId);
+
+        var key = request.ApiKey?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(key))
+            throw new AppException("API key cannot be empty.", 400, "VALIDATION_ERROR");
+
+        if (request.Validate && _sarvamApiService != null)
+        {
+            var isValid = await _sarvamApiService.ValidateApiKeyAsync(key, ct);
+            if (!isValid)
+            {
+                throw new AppException("The provided Sarvam API key is invalid or unauthorized.", 400, "INVALID_API_KEY");
+            }
+        }
+
+        user.CustomApiKey = key;
+        user.UpdatedDate = DateTime.UtcNow;
+
+        _uow.Repository<User>().Update(user);
+        await _uow.SaveChangesAsync(ct);
+
+        return BuildApiKeyStatus(user);
+    }
+
+    public async Task<UserApiKeyStatusResponse> GetApiKeyStatusAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await _uow.Repository<User>().FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, ct)
+            ?? throw new NotFoundException(nameof(User), userId);
+
+        return BuildApiKeyStatus(user);
+    }
+
+    public async Task<UserApiKeyStatusResponse> ResetApiKeyAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await _uow.Repository<User>().FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, ct)
+            ?? throw new NotFoundException(nameof(User), userId);
+
+        user.CustomApiKey = null;
+        user.UpdatedDate = DateTime.UtcNow;
+
+        _uow.Repository<User>().Update(user);
+        await _uow.SaveChangesAsync(ct);
+
+        return BuildApiKeyStatus(user);
+    }
+
+    private static UserApiKeyStatusResponse BuildApiKeyStatus(User user)
+    {
+        var hasCustomKey = !string.IsNullOrWhiteSpace(user.CustomApiKey);
+        var maskedKey = hasCustomKey ? MaskApiKey(user.CustomApiKey!) : null;
+        var keySource = hasCustomKey ? "custom" : "system";
+
+        return new UserApiKeyStatusResponse(
+            HasCustomKey: hasCustomKey,
+            MaskedKey: maskedKey,
+            KeySource: keySource,
+            IsSystemKeyConfigured: true,
+            UpdatedDate: user.UpdatedDate);
+    }
+
+    private static string MaskApiKey(string key)
+    {
+        var trimmed = key.Trim();
+        if (trimmed.Length <= 8)
+            return new string('*', trimmed.Length);
+
+        var prefixLen = Math.Min(6, trimmed.Length / 3);
+        var suffixLen = Math.Min(4, trimmed.Length / 3);
+        var prefix = trimmed[..prefixLen];
+        var suffix = trimmed[^suffixLen..];
+        return $"{prefix}****{suffix}";
     }
 }

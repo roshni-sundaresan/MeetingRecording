@@ -193,6 +193,52 @@ public class SarvamApiServiceTests
         summary.Should().BeNull();
     }
 
+    [Fact]
+    public async Task SynthesizeTextToSpeech_WithCustomApiKeyOverride_UsesOverriddenKey()
+    {
+        string? capturedKey = null;
+        var jsonResponse = @"{ ""audios"": [""UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAFAAACABAAZGF0YQAAAAA=""] }";
+        var handler = new MockHttpMessageHandler(jsonResponse, HttpStatusCode.OK, req =>
+        {
+            if (req.Headers.TryGetValues("api-subscription-key", out var values))
+            {
+                capturedKey = values.FirstOrDefault();
+            }
+        });
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://api.sarvam.ai") };
+        var sut = new SarvamApiService(httpClient, Options.Create(_options), NullLogger<SarvamApiService>.Instance);
+
+        var result = await sut.SynthesizeTextToSpeechAsync("Hello welcome", null, "custom-user-api-key");
+
+        result.Should().Be("UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAFAAACABAAZGF0YQAAAAA=");
+        capturedKey.Should().Be("custom-user-api-key");
+    }
+
+    [Fact]
+    public async Task ValidateApiKey_WhenValid_ReturnsTrue()
+    {
+        var jsonResponse = @"{ ""id"": ""chatcmpl-test"" }";
+        var handler = new MockHttpMessageHandler(jsonResponse, HttpStatusCode.OK);
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://api.sarvam.ai") };
+        var sut = new SarvamApiService(httpClient, Options.Create(_options), NullLogger<SarvamApiService>.Instance);
+
+        var isValid = await sut.ValidateApiKeyAsync("sk_valid_test_key_12345");
+
+        isValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ValidateApiKey_WhenUnauthorized_ReturnsFalse()
+    {
+        var handler = new MockHttpMessageHandler("Unauthorized", HttpStatusCode.Unauthorized);
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://api.sarvam.ai") };
+        var sut = new SarvamApiService(httpClient, Options.Create(_options), NullLogger<SarvamApiService>.Instance);
+
+        var isValid = await sut.ValidateApiKeyAsync("sk_invalid_test_key_12345");
+
+        isValid.Should().BeFalse();
+    }
+
     private class MockHttpMessageHandler : HttpMessageHandler
     {
         private readonly string _responseContent;

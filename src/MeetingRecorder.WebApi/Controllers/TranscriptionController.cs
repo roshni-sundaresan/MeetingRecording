@@ -18,12 +18,18 @@ public class TranscriptionController : ApiControllerBase
     private readonly ISarvamApiService _sarvamApiService;
     private readonly IUnitOfWork _uow;
     private readonly IWebHostEnvironment _env;
+    private readonly ILogger<TranscriptionController> _logger;
 
-    public TranscriptionController(ISarvamApiService sarvamApiService, IUnitOfWork uow, IWebHostEnvironment env)
+    public TranscriptionController(
+        ISarvamApiService sarvamApiService,
+        IUnitOfWork uow,
+        IWebHostEnvironment env,
+        ILogger<TranscriptionController> logger)
     {
         _sarvamApiService = sarvamApiService;
         _uow = uow;
         _env = env;
+        _logger = logger;
     }
 
     /// <summary>
@@ -92,7 +98,14 @@ public class TranscriptionController : ApiControllerBase
             // 2. Call Sarvam AI to generate MOM / Summary from transcript
             if (lines.Count > 0)
             {
-                summary = await _sarvamApiService.SummarizeTranscriptAsync(lines, languageCode ?? rec?.SourceLanguageCode, ct);
+                try
+                {
+                    summary = await _sarvamApiService.SummarizeTranscriptAsync(lines, languageCode ?? rec?.SourceLanguageCode, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to generate AI summary for uploaded file. Using transcript fallback.");
+                }
             }
 
             // 3. Save or update recording in DB
@@ -126,11 +139,12 @@ public class TranscriptionController : ApiControllerBase
 
             await _uow.SaveChangesAsync(ct);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Error processing transcription upload for file {FileName}", originalFileName);
             if (rec is not null)
             {
-                rec.TranscriptionStatus = TranscriptionStatus.Failed;
+                rec.TranscriptionStatus = lines.Count > 0 ? TranscriptionStatus.Completed : TranscriptionStatus.Failed;
                 rec.UpdatedDate = DateTime.UtcNow;
                 _uow.Repository<Recording>().Update(rec);
                 await _uow.SaveChangesAsync(ct);

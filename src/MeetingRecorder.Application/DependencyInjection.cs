@@ -17,6 +17,8 @@ public static class DependencyInjection
         services.AddScoped<IValidator<DTOs.RegisterRequest>, RegisterValidator>();
         services.AddScoped<IValidator<DTOs.CreateUserRequest>, CreateUserValidator>();
         services.AddScoped<IValidator<DTOs.UpdateUserRequest>, UpdateUserValidator>();
+        services.AddScoped<IValidator<DTOs.SetApiKeyRequest>, SetApiKeyValidator>();
+        services.AddScoped<IValidator<DTOs.ValidateApiKeyRequest>, ValidateApiKeyValidator>();
         services.AddScoped<IValidator<DTOs.CreateRecordingRequest>, CreateRecordingValidator>();
         services.AddScoped<IValidator<DTOs.UpdateRecordingRequest>, UpdateRecordingValidator>();
         services.AddScoped<IValidator<DTOs.BatchRecordingsRequest>, BatchRecordingsValidator>();
