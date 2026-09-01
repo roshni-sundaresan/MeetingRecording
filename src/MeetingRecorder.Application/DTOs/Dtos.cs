@@ -92,6 +92,10 @@ public record UploadAudioRecordingRequest(
     RecordingType? Type = null,
     Guid? RecordingId = null);
 
+public record SummarizeTextRequest(string Text, string? LanguageCode = null, Guid? RecordingId = null);
+
+public record SummarizeTextResponse(string Summary, Guid? RecordingId = null);
+
 // ---------- Recordings ----------
 public record CreateRecordingRequest(Guid UserId, string Title, RecordingType Type, DateTime? CreatedAt,
     TimeSpan? Duration, string? Summary, IReadOnlyList<TranscriptLineDto>? Transcript,

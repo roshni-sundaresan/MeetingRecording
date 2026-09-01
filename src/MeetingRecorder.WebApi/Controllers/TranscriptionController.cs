@@ -375,6 +375,39 @@ public class TranscriptionController : ApiControllerBase
         return Envelope(resultResponse);
     }
 
+    /// <summary>
+    /// Summarize raw transcript text directly using Sarvam AI and return clean MOM / Summary.
+    /// Optionally updates a recording's summary if recordingId is provided.
+    /// </summary>
+    [HttpPost("summarize")]
+    [ProducesResponseType(typeof(ApiResponse<SummarizeTextResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<SummarizeTextResponse>>> SummarizeText(
+        [FromBody] SummarizeTextRequest request, CancellationToken ct)
+    {
+        if (request is null || string.IsNullOrWhiteSpace(request.Text))
+        {
+            throw new AppException("Transcript text is required for summarization.", 400, "VALIDATION_ERROR");
+        }
+
+        var summary = await _sarvamApiService.SummarizeTranscriptAsync(request.Text, request.LanguageCode, ct);
+
+        if (request.RecordingId.HasValue && request.RecordingId.Value != Guid.Empty)
+        {
+            var rec = await _uow.Repository<Recording>().FirstOrDefaultAsync(r => r.Id == request.RecordingId.Value && !r.IsDeleted, ct);
+            if (rec is not null)
+            {
+                AccessPolicies.EnsureCanActOnUser(CurrentUser, rec.UserId);
+                rec.Summary = summary;
+                rec.UpdatedDate = DateTime.UtcNow;
+                _uow.Repository<Recording>().Update(rec);
+                await _uow.SaveChangesAsync(ct);
+            }
+        }
+
+        return Envelope(new SummarizeTextResponse(summary ?? string.Empty, request.RecordingId), "MOM / Summary generated successfully.");
+    }
+
     private string ResolveFilePath(string path)
     {
         if (Path.IsPathRooted(path))

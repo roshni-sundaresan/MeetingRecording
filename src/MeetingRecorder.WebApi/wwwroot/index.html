@@ -3,601 +3,449 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Meeting Recorder — Sarvam AI Transcription & MOM Test Studio</title>
+    <title>Meeting Recorder — Clean MOM & AI Studio</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
-        .gradient-bg { background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%); }
-        .tab-btn.active { border-bottom: 3px solid #6366f1; color: #4f46e5; font-weight: 600; }
+        .gradient-bg { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #312e81 100%); }
+        .main-tab-btn.active { border-bottom: 3px solid #6366f1; color: #4338ca; font-weight: 700; }
+        .sub-tab-btn.active { background-color: #e0e7ff; color: #3730a3; font-weight: 600; }
         .speaker-bubble-1 { background-color: #f0fdf4; border-left: 4px solid #22c55e; }
         .speaker-bubble-2 { background-color: #eff6ff; border-left: 4px solid #3b82f6; }
         .speaker-bubble-3 { background-color: #faf5ff; border-left: 4px solid #a855f7; }
+        .clean-badge { background-color: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+        pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col font-sans">
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col font-sans antialiased">
 
     <!-- Header -->
-    <header class="gradient-bg text-white shadow-lg">
-        <div class="max-w-6xl mx-auto px-6 py-6 flex flex-col md:flex-row justify-between items-center gap-4">
-            <div>
-                <div class="flex items-center gap-3">
-                    <span class="text-3xl">🎙️</span>
-                    <div>
-                        <h1 class="text-2xl font-bold tracking-tight">Sarvam AI Transcription & MOM Test Studio</h1>
-                        <p class="text-indigo-200 text-sm">Audio Upload &rarr; Sarvam STT &rarr; DB &rarr; Sarvam MOM / Summary &rarr; Response</p>
-                    </div>
+    <header class="gradient-bg text-white shadow-xl">
+        <div class="max-w-7xl mx-auto px-6 py-5 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-indigo-600/60 border border-indigo-400/40 flex items-center justify-center text-2xl shadow-inner">
+                    🎙️
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight">Meeting Recorder — Clean MOM Studio</h1>
+                    <p class="text-indigo-200 text-xs">Verify Sarvam AI Speech-to-Text &amp; Clean 3-Section MOM Summarization</p>
                 </div>
             </div>
-            <div class="flex items-center gap-3">
-                <a href="/swagger" target="_blank" class="bg-indigo-950/60 hover:bg-indigo-900 text-indigo-200 hover:text-white px-4 py-2 rounded-lg text-sm transition border border-indigo-700/50 flex items-center gap-2">
-                    <i class="fa-solid fa-code"></i> Swagger UI
-                </a>
-                <div id="authStatusBadge" class="bg-rose-500/20 text-rose-200 border border-rose-500/40 text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5">
-                    <span class="w-2 h-2 rounded-full bg-rose-400"></span> Not Authenticated
+
+            <!-- Server & Auth Bar -->
+            <div class="flex flex-wrap items-center gap-2.5">
+                <div class="flex items-center bg-indigo-950/70 border border-indigo-700/50 rounded-lg px-2.5 py-1 text-xs text-indigo-200">
+                    <span class="text-slate-400 mr-1.5">API:</span>
+                    <input id="apiBaseUrl" type="text" value="" placeholder="http://localhost:5080" class="bg-transparent text-white font-mono text-xs focus:outline-none w-44">
                 </div>
+                <div id="authStatusBadge" class="bg-rose-500/20 text-rose-200 border border-rose-500/40 text-xs px-3 py-1 rounded-full flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-rose-400"></span> Not Signed In
+                </div>
+                <a href="/swagger" target="_blank" class="bg-indigo-950/60 hover:bg-indigo-900 text-indigo-200 hover:text-white px-3 py-1 rounded-lg text-xs transition border border-indigo-700/50 flex items-center gap-1.5">
+                    <i class="fa-solid fa-code"></i> Swagger
+                </a>
             </div>
         </div>
     </header>
 
+    <!-- Top Mode Navigation -->
+    <nav class="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-6 flex space-x-8 text-sm font-medium">
+            <button id="navTabMom" onclick="switchNavMode('mom')" class="main-tab-btn active py-3.5 px-2 flex items-center gap-2 text-indigo-700 border-b-2 border-indigo-600">
+                <i class="fa-solid fa-wand-magic-sparkles text-indigo-600"></i> Instant Transcript &rarr; MOM Tester
+            </button>
+            <button id="navTabAudio" onclick="switchNavMode('audio')" class="main-tab-btn py-3.5 px-2 flex items-center gap-2 text-slate-500 hover:text-slate-800">
+                <i class="fa-solid fa-microphone-lines"></i> Audio Upload &amp; Transcription Pipeline
+            </button>
+            <button id="navTabSettings" onclick="switchNavMode('settings')" class="main-tab-btn py-3.5 px-2 flex items-center gap-2 text-slate-500 hover:text-slate-800">
+                <i class="fa-solid fa-sliders"></i> Auth &amp; Sarvam API Key
+            </button>
+        </div>
+    </nav>
+
     <!-- Main Container -->
-    <main class="max-w-6xl mx-auto px-6 py-8 flex-1 w-full grid grid-cols-1 lg:grid-cols-12 gap-8">
+    <main class="max-w-7xl mx-auto px-6 py-6 flex-1 w-full">
 
-        <!-- Left Column: Controls & Upload -->
-        <div class="lg:col-span-5 space-y-6">
-
-            <!-- Step 1: Authentication -->
-            <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
-                <div class="flex items-center justify-between mb-4">
-                    <h2 class="font-semibold text-slate-800 flex items-center gap-2">
-                        <span class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 text-xs flex items-center justify-center font-bold">1</span>
-                        Authentication
-                    </h2>
-                    <div class="flex items-center gap-1.5">
-                        <button id="quickLoginBtn" onclick="quickLogin()" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium px-2.5 py-1 rounded-md transition flex items-center gap-1">
-                            <i class="fa-solid fa-user-shield text-indigo-600"></i> Admin
-                        </button>
-                        <button id="quickDemoBtn" onclick="quickDemoLogin()" class="text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 font-medium px-2.5 py-1 rounded-md transition flex items-center gap-1">
-                            <i class="fa-solid fa-user text-amber-600"></i> Demo User
-                        </button>
+        <!-- ========================================================================= -->
+        <!-- MODE 1: INSTANT TRANSCRIPT &rarr; CLEAN MOM TESTER (Primary)             -->
+        <!-- ========================================================================= -->
+        <section id="sectionMomTester" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- Left Input Column -->
+            <div class="lg:col-span-5 space-y-4">
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h2 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                            <i class="fa-solid fa-align-left text-indigo-600"></i> Meeting Transcript Input
+                        </h2>
+                        <span class="text-xs text-slate-400 font-mono" id="transcriptWordCount">0 words</span>
                     </div>
-                </div>
 
-                <div class="space-y-3 text-sm">
-                    <div>
-                        <label class="block text-xs font-medium text-slate-600 mb-1">Email</label>
-                        <input id="authEmail" type="email" value="admin@meetingrecorder.dev" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-700 bg-slate-50 border-slate-200">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-600 mb-1">Password</label>
-                        <input id="authPassword" type="password" value="Admin@123" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-700 bg-slate-50 border-slate-200">
-                    </div>
-                    <button onclick="login()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-medium py-2 rounded-lg transition flex items-center justify-center gap-2">
-                        <i class="fa-solid fa-right-to-bracket"></i> Sign In / Get Token
-                    </button>
-                </div>
-            </div>
-
-            <!-- Step 2: Sarvam API Key Configuration (BYOK vs Purchased/System) -->
-            <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-4">
-                <div class="flex items-center justify-between">
-                    <h2 class="font-semibold text-slate-800 flex items-center gap-2">
-                        <span class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 text-xs flex items-center justify-center font-bold">2</span>
-                        Sarvam API Key
-                    </h2>
-                    <div id="activeKeyBadge" class="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1">
-                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> System Default
-                    </div>
-                </div>
-
-                <div class="space-y-3 text-xs">
-                    <div>
-                        <div class="flex items-center justify-between mb-1">
-                            <label class="font-medium text-slate-600">Enter Custom API Key</label>
-                            <a href="https://dashboard.sarvam.ai" target="_blank" class="text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1">
-                                <i class="fa-solid fa-cart-shopping"></i> Buy / Get Key <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
-                            </a>
-                        </div>
-                        <div class="relative">
-                            <input id="customApiKeyInput" type="password" placeholder="sk_..." class="w-full pl-3 pr-8 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-700 bg-slate-50 border-slate-200 font-mono text-xs">
-                            <button type="button" onclick="toggleKeyVisibility()" class="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600">
-                                <i id="eyeIcon" class="fa-regular fa-eye"></i>
+                    <!-- Quick Sample Templates -->
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-semibold text-slate-600">Load Test Sample Template:</label>
+                        <div class="grid grid-cols-3 gap-2">
+                            <button onclick="loadTemplate('pooja')" class="text-[11px] bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 font-medium py-1.5 px-2 rounded-lg border border-slate-200 transition truncate text-left" title="Pooja's Meeting App Intro">
+                                📌 Pooja Intro
+                            </button>
+                            <button onclick="loadTemplate('passenger')" class="text-[11px] bg-slate-100 hover:bg-amber-50 hover:text-amber-700 text-slate-700 font-medium py-1.5 px-2 rounded-lg border border-slate-200 transition truncate text-left" title="Passenger Lyrics Test (Disclaimer Removal)">
+                                🎵 Lyrics Test
+                            </button>
+                            <button onclick="loadTemplate('sprint')" class="text-[11px] bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 font-medium py-1.5 px-2 rounded-lg border border-slate-200 transition truncate text-left" title="Sprint Sync Meeting">
+                                🚀 Sprint Sync
                             </button>
                         </div>
                     </div>
 
-                    <div class="flex items-center justify-between text-xs text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                        <div class="truncate">
-                            <span class="text-slate-400">Current Key:</span>
-                            <span id="currentMaskedKeyDisplay" class="font-mono font-semibold text-slate-700 ml-1">System Default</span>
-                        </div>
-                        <span id="keySourceBadge" class="text-[11px] bg-slate-200 text-slate-700 px-2 py-0.5 rounded-md font-medium">System</span>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-2 pt-1">
-                        <button id="saveKeyBtn" onclick="saveApiKey()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 rounded-lg transition text-xs flex items-center justify-center gap-1.5 shadow-sm">
-                            <i class="fa-solid fa-shield-check"></i> Validate & Save Key
-                        </button>
-                        <button id="deleteKeyBtn" onclick="deleteApiKey()" class="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold py-2 rounded-lg transition text-xs flex items-center justify-center gap-1.5">
-                            <i class="fa-solid fa-trash-can text-rose-600"></i> Delete Custom Key
-                        </button>
-                    </div>
-                    <div id="keyActionStatus" class="hidden text-xs p-2.5 rounded-lg font-medium"></div>
-                </div>
-            </div>
-
-            <!-- Step 3: Upload / Record Audio -->
-            <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-4">
-                <div class="flex items-center justify-between">
-                    <h2 class="font-semibold text-slate-800 flex items-center gap-2">
-                        <span class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 text-xs flex items-center justify-center font-bold">3</span>
-                        Audio Recording
-                    </h2>
-                </div>
-
-                <!-- Input Type Switcher: File Upload vs Mic Record -->
-                <div class="flex bg-slate-100 p-1 rounded-xl text-xs font-medium">
-                    <button id="modeFileBtn" onclick="switchAudioMode('file')" class="flex-1 py-1.5 rounded-lg bg-white shadow-sm text-indigo-600 font-semibold">
-                        <i class="fa-solid fa-file-audio mr-1"></i> File Upload
-                    </button>
-                    <button id="modeMicBtn" onclick="switchAudioMode('mic')" class="flex-1 py-1.5 rounded-lg text-slate-600 hover:text-slate-900">
-                        <i class="fa-solid fa-microphone mr-1"></i> Record from Mic
-                    </button>
-                </div>
-
-                <!-- Mode A: File Upload Dropzone -->
-                <div id="fileUploadContainer" class="space-y-3">
-                    <div id="dropZone" class="border-2 border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/40 rounded-xl p-6 text-center cursor-pointer transition">
-                        <input id="audioFileInput" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.webm,.mp4,.aac,.ogg,.flac" class="hidden" onchange="handleFileSelected(this.files)">
-                        <div class="space-y-2" onclick="document.getElementById('audioFileInput').click()">
-                            <div class="w-12 h-12 mx-auto rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xl">
-                                <i class="fa-solid fa-cloud-arrow-up"></i>
-                            </div>
-                            <div class="text-sm font-medium text-slate-700">Choose an audio file or drag & drop</div>
-                            <div class="text-xs text-slate-400">Supports MP3, WAV, M4A, WEBM, MP4, AAC, OGG</div>
-                        </div>
-                    </div>
-                    <div id="selectedFileInfo" class="hidden text-xs bg-indigo-50 text-indigo-700 p-3 rounded-lg flex items-center justify-between border border-indigo-100">
-                        <div class="flex items-center gap-2 truncate">
-                            <i class="fa-solid fa-file-lines text-indigo-500"></i>
-                            <span id="selectedFileName" class="font-medium truncate">recording.mp3</span>
-                            <span id="selectedFileSize" class="text-indigo-400"></span>
-                        </div>
-                        <button onclick="clearSelectedFile()" class="text-indigo-400 hover:text-indigo-600 text-sm">
-                            <i class="fa-solid fa-xmark"></i>
-                        </button>
-                    </div>
-
-                    <!-- Sample Audio Helper -->
-                    <div class="bg-indigo-50/60 border border-indigo-100 rounded-xl p-3 flex items-center justify-between gap-2 text-xs">
-                        <div class="flex items-center gap-2 text-indigo-800 font-medium">
-                            <i class="fa-solid fa-music text-indigo-600"></i>
-                            <span>Sample Meeting Audio Clip</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <a href="/sample_meeting.wav" download="sample_meeting.wav" class="bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-md transition font-medium flex items-center gap-1">
-                                <i class="fa-solid fa-download"></i> Download WAV
-                            </a>
-                            <button onclick="loadSampleAudio()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded-md transition font-medium flex items-center gap-1 shadow-sm">
-                                <i class="fa-solid fa-play"></i> Use in Test
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Mode B: Microphone Recording -->
-                <div id="micRecordContainer" class="hidden space-y-3 text-center">
-                    <div class="border border-slate-200 rounded-xl p-6 bg-slate-50 space-y-4">
-                        <div id="recordTimer" class="text-3xl font-mono font-bold text-slate-700">00:00</div>
-                        <div class="flex justify-center gap-3">
-                            <button id="startRecordBtn" onclick="startMicRecording()" class="bg-rose-500 hover:bg-rose-600 text-white font-medium px-5 py-2.5 rounded-xl shadow-sm transition flex items-center gap-2 text-sm">
-                                <i class="fa-solid fa-circle"></i> Start Recording
-                            </button>
-                            <button id="stopRecordBtn" onclick="stopMicRecording()" disabled class="bg-slate-300 text-slate-500 font-medium px-5 py-2.5 rounded-xl transition flex items-center gap-2 text-sm cursor-not-allowed">
-                                <i class="fa-solid fa-square"></i> Stop
-                            </button>
-                        </div>
-                        <audio id="recordedAudioPreview" controls class="hidden w-full mt-2"></audio>
-                    </div>
-                </div>
-
-                <!-- Metadata Options -->
-                <div class="space-y-3 pt-2 text-xs">
+                    <!-- Text Area -->
                     <div>
-                        <label class="block font-medium text-slate-600 mb-1">Meeting / Recording Title</label>
-                        <input id="recTitle" type="text" placeholder="e.g. Q3 Roadmap Planning" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-700 bg-slate-50 border-slate-200">
+                        <textarea id="momInputTranscript" rows="12" placeholder="Paste your meeting transcription text or select a template above..." class="w-full p-3.5 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none text-xs text-slate-700 bg-slate-50 border-slate-200 leading-relaxed font-mono resize-none"></textarea>
                     </div>
-                    <div class="grid grid-cols-2 gap-3">
+
+                    <!-- Language & Model -->
+                    <div class="grid grid-cols-2 gap-3 text-xs">
                         <div>
                             <label class="block font-medium text-slate-600 mb-1">Language</label>
-                            <select id="recLanguage" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-700 bg-slate-50 border-slate-200">
+                            <select id="momLanguage" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-700 bg-slate-50 border-slate-200 text-xs">
                                 <option value="en-IN">English (India) - en-IN</option>
                                 <option value="hi-IN">Hindi - hi-IN</option>
                                 <option value="mr-IN">Marathi - mr-IN</option>
                                 <option value="ta-IN">Tamil - ta-IN</option>
                                 <option value="te-IN">Telugu - te-IN</option>
-                                <option value="kn-IN">Kannada - kn-IN</option>
-                                <option value="gu-IN">Gujarati - gu-IN</option>
-                                <option value="bn-IN">Bengali - bn-IN</option>
                             </select>
                         </div>
-                        <div>
-                            <label class="block font-medium text-slate-600 mb-1">Type</label>
-                            <select id="recType" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-700 bg-slate-50 border-slate-200">
-                                <option value="meeting">Meeting</option>
-                                <option value="voice_note">Voice Note</option>
-                                <option value="interview">Interview</option>
-                                <option value="audio">Audio</option>
-                            </select>
+                        <div class="flex items-end">
+                            <button onclick="quickAuthAndGenerate()" id="btnGenerateMom" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-3 rounded-lg shadow-sm transition text-xs flex items-center justify-center gap-1.5">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i> Generate Clean MOM
+                            </button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Submit Button -->
-                <button id="uploadBtn" onclick="uploadAndTranscribe()" class="w-full bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-semibold py-3 rounded-xl shadow-md transition flex items-center justify-center gap-2 mt-4 text-sm">
-                    <i class="fa-solid fa-wand-magic-sparkles"></i> Upload & Generate MOM / Summary
-                </button>
-            </div>
-
-        </div>
-
-        <!-- Right Column: Results & Verification -->
-        <div class="lg:col-span-7 space-y-6">
-
-            <!-- Progress Card (Hidden by default) -->
-            <div id="progressCard" class="hidden bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-4">
-                <div class="flex items-center justify-between">
-                    <h3 class="font-semibold text-slate-800 flex items-center gap-2 text-sm">
-                        <i class="fa-solid fa-spinner fa-spin text-indigo-600"></i> Processing Pipeline in Progress
-                    </h3>
-                    <span id="elapsedTime" class="text-xs font-mono text-slate-500">0s</span>
-                </div>
-                <div class="space-y-2 text-xs">
-                    <div id="step1Status" class="flex items-center gap-2 text-slate-600">
-                        <i class="fa-solid fa-circle-notch fa-spin text-indigo-500"></i> Step 1: Uploading audio file to server storage...
+                <!-- Verification Checklist Card -->
+                <div class="bg-indigo-50/70 border border-indigo-100 rounded-2xl p-4 text-xs space-y-2.5">
+                    <div class="font-bold text-indigo-900 flex items-center gap-2">
+                        <i class="fa-solid fa-circle-check text-indigo-600"></i>
+                        MOM Format Quality Rules Applied:
                     </div>
-                    <div id="step2Status" class="flex items-center gap-2 text-slate-400">
-                        <i class="fa-regular fa-circle"></i> Step 2: Calling Sarvam AI Speech-to-Text (STT) & saving transcript to DB...
-                    </div>
-                    <div id="step3Status" class="flex items-center gap-2 text-slate-400">
-                        <i class="fa-regular fa-circle"></i> Step 3: Calling Sarvam AI (sarvam-105b) to generate MOM / Summary & saving to DB...
-                    </div>
+                    <ul class="space-y-1.5 text-indigo-950">
+                        <li class="flex items-start gap-2">
+                            <i class="fa-solid fa-check text-emerald-600 mt-0.5"></i>
+                            <span><strong>No preambles:</strong> Strips "Of course", "Here is...", "Below is...".</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <i class="fa-solid fa-check text-emerald-600 mt-0.5"></i>
+                            <span><strong>No disclaimers:</strong> Strips "Disclaimer: ...", song lyrics meta-notes.</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <i class="fa-solid fa-check text-emerald-600 mt-0.5"></i>
+                            <span><strong>No placeholders:</strong> Strips "[Date of Meeting]", "[Not specified]".</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <i class="fa-solid fa-check text-emerald-600 mt-0.5"></i>
+                            <span><strong>Direct structure:</strong> Starts immediately with Section 1.</span>
+                        </li>
+                    </ul>
                 </div>
             </div>
 
-            <!-- Error Card -->
-            <div id="errorCard" class="hidden bg-rose-50 border border-rose-200 rounded-2xl p-5 text-rose-800 text-sm flex items-start gap-3">
-                <i class="fa-solid fa-circle-exclamation text-rose-500 text-lg mt-0.5"></i>
-                <div class="space-y-1 flex-1">
-                    <div class="font-semibold" id="errorTitle">An error occurred</div>
-                    <div class="text-xs text-rose-700" id="errorMessage"></div>
-                </div>
-            </div>
-
-            <!-- Results Card -->
-            <div id="resultsCard" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+            <!-- Right Results Column -->
+            <div class="lg:col-span-7 space-y-4">
                 
-                <!-- Results Header & Meta -->
-                <div class="p-6 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <div>
+                <!-- Loading State -->
+                <div id="momLoadingState" class="hidden bg-white rounded-2xl p-10 shadow-sm border border-slate-200 text-center space-y-3">
+                    <div class="w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto text-xl">
+                        <i class="fa-solid fa-spinner fa-spin"></i>
+                    </div>
+                    <h3 class="font-bold text-slate-800 text-sm">Generating Clean MOM Summary...</h3>
+                    <p class="text-xs text-slate-500 max-w-sm mx-auto">Sarvam AI is analyzing the transcript and formatting the clean 3-section summary without preambles.</p>
+                </div>
+
+                <!-- Empty State -->
+                <div id="momEmptyState" class="bg-white rounded-2xl p-12 shadow-sm border border-slate-200 text-center space-y-3">
+                    <div class="w-14 h-14 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto text-2xl">
+                        <i class="fa-solid fa-file-lines"></i>
+                    </div>
+                    <h3 class="font-bold text-slate-800 text-sm">Ready to Test Clean MOM Generation</h3>
+                    <p class="text-xs text-slate-500 max-w-md mx-auto">Click one of the sample buttons on the left or paste your own transcript, then click <strong>"Generate Clean MOM"</strong> to test the output.</p>
+                </div>
+
+                <!-- Output Card -->
+                <div id="momOutputCard" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                    
+                    <!-- Output Top Bar -->
+                    <div class="p-4 border-b border-slate-100 bg-slate-50/70 flex justify-between items-center">
                         <div class="flex items-center gap-2">
-                            <span class="bg-emerald-100 text-emerald-700 text-xs px-2.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
-                                <i class="fa-solid fa-check"></i> Completed
+                            <span class="clean-badge text-xs px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1">
+                                <i class="fa-solid fa-shield-check"></i> Clean MOM Verified
                             </span>
-                            <h2 id="resultTitle" class="text-lg font-bold text-slate-800">Meeting Title</h2>
+                            <span class="text-xs text-slate-500 font-mono" id="momGeneratedTime"></span>
                         </div>
-                        <div class="text-xs text-slate-500 mt-1 flex items-center gap-3">
-                            <span><i class="fa-regular fa-clock mr-1"></i> <span id="resultRecordingId"></span></span>
-                            <span><i class="fa-solid fa-language mr-1"></i> <span id="resultLanguage"></span></span>
+                        <div class="flex items-center gap-2">
+                            <button onclick="switchMomView('rendered')" id="btnMomViewRendered" class="sub-tab-btn active text-xs px-2.5 py-1 rounded-md font-medium">
+                                Formatted View
+                            </button>
+                            <button onclick="switchMomView('raw')" id="btnMomViewRaw" class="sub-tab-btn text-xs px-2.5 py-1 rounded-md text-slate-600 hover:bg-slate-200">
+                                Raw Markdown
+                            </button>
+                            <button onclick="copyCurrentMom()" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold px-3 py-1 rounded-md transition flex items-center gap-1">
+                                <i class="fa-regular fa-copy"></i> Copy
+                            </button>
                         </div>
                     </div>
-                    <div class="flex items-center gap-2">
-                        <button onclick="fetchFromDb()" class="text-xs bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-medium px-3 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
-                            <i class="fa-solid fa-database text-indigo-500"></i> Verify in DB (GET API)
-                        </button>
-                    </div>
-                </div>
 
-                <!-- Tabs -->
-                <div class="flex border-b border-slate-200 text-xs font-medium px-6">
-                    <button id="tabMomBtn" onclick="switchResultTab('mom')" class="tab-btn active py-3 px-4 flex items-center gap-2">
-                        <i class="fa-solid fa-file-signature"></i> Minutes of Meeting (MOM) / Summary
-                    </button>
-                    <button id="tabTranscriptBtn" onclick="switchResultTab('transcript')" class="tab-btn py-3 px-4 flex items-center gap-2 text-slate-500 hover:text-slate-800">
-                        <i class="fa-solid fa-users"></i> Diarized Transcript
-                    </button>
-                    <button id="tabFullTextBtn" onclick="switchResultTab('fulltext')" class="tab-btn py-3 px-4 flex items-center gap-2 text-slate-500 hover:text-slate-800">
-                        <i class="fa-solid fa-align-left"></i> Full Text
-                    </button>
-                    <button id="tabJsonBtn" onclick="switchResultTab('json')" class="tab-btn py-3 px-4 flex items-center gap-2 text-slate-500 hover:text-slate-800">
-                        <i class="fa-solid fa-code"></i> Raw JSON
-                    </button>
-                </div>
+                    <!-- Rendered Markdown View -->
+                    <div id="momRenderedView" class="p-6">
+                        <div id="momRenderedHtml" class="prose prose-sm max-w-none text-slate-800 leading-relaxed space-y-4"></div>
+                    </div>
 
-                <!-- Tab 1: MOM / Summary Content -->
-                <div id="tabMomContent" class="p-6 space-y-4">
-                    <div class="flex justify-between items-center">
-                        <h3 class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                            <i class="fa-solid fa-wand-magic-sparkles text-indigo-600"></i> AI-Generated Minutes of Meeting (MOM)
-                        </h3>
-                        <button onclick="copyToClipboard(currentSummary)" class="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium">
-                            <i class="fa-regular fa-copy"></i> Copy MOM
-                        </button>
+                    <!-- Raw Markdown View -->
+                    <div id="momRawView" class="hidden p-4">
+                        <textarea id="momRawText" readonly rows="16" class="w-full p-4 bg-slate-900 text-slate-100 rounded-xl font-mono text-xs focus:outline-none"></textarea>
                     </div>
-                    <div id="renderedMomContainer" class="prose prose-sm prose-slate max-w-none bg-slate-50 p-5 rounded-xl border border-slate-200 text-slate-800 leading-relaxed">
-                    </div>
-                </div>
-
-                <!-- Tab 2: Diarized Transcript Lines -->
-                <div id="tabTranscriptContent" class="hidden p-6 space-y-4">
-                    <div class="flex justify-between items-center">
-                        <h3 class="text-sm font-bold text-slate-700 flex items-center gap-2">
-                            <i class="fa-solid fa-users text-indigo-600"></i> Diarized Speaker Transcript
-                        </h3>
-                        <span id="lineCountBadge" class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">0 lines</span>
-                    </div>
-                    <div id="diarizedLinesContainer" class="space-y-3 max-h-[450px] overflow-y-auto pr-2">
-                    </div>
-                </div>
-
-                <!-- Tab 3: Full Text Transcript -->
-                <div id="tabFullTextContent" class="hidden p-6 space-y-4">
-                    <div class="flex justify-between items-center">
-                        <h3 class="text-sm font-bold text-slate-700">Full Text Transcript</h3>
-                        <button onclick="copyToClipboard(currentFullTranscript)" class="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium">
-                            <i class="fa-regular fa-copy"></i> Copy Full Text
-                        </button>
-                    </div>
-                    <textarea id="fullTranscriptTextarea" readonly class="w-full h-80 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-700 focus:outline-none"></textarea>
-                </div>
-
-                <!-- Tab 4: Raw JSON Response -->
-                <div id="tabJsonContent" class="hidden p-6 space-y-4">
-                    <div class="flex justify-between items-center">
-                        <h3 class="text-sm font-bold text-slate-700">API Envelope Response</h3>
-                        <button onclick="copyJsonToClipboard()" class="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium">
-                            <i class="fa-regular fa-copy"></i> Copy JSON
-                        </button>
-                    </div>
-                    <pre id="rawJsonResponse" class="bg-slate-900 text-slate-100 p-4 rounded-xl text-xs font-mono max-h-[400px] overflow-auto"></pre>
                 </div>
 
             </div>
+        </section>
 
-            <!-- Welcome Placeholder when no results yet -->
-            <div id="emptyPlaceholder" class="bg-white rounded-2xl p-12 shadow-sm border border-slate-200 text-center space-y-4">
-                <div class="w-16 h-16 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto text-2xl">
-                    <i class="fa-solid fa-microphone-lines"></i>
-                </div>
-                <div class="space-y-1">
-                    <h3 class="font-bold text-slate-800">Ready to test Sarvam AI transcription</h3>
-                    <p class="text-slate-500 text-sm max-w-md mx-auto">Upload an audio recording or speak into your microphone to verify that the backend saves the transcript and MOM/summary in the database and returns both.</p>
+        <!-- ========================================================================= -->
+        <!-- MODE 2: AUDIO RECORDING & FULL TRANSCRIPTION PIPELINE                    -->
+        <!-- ========================================================================= -->
+        <section id="sectionAudioPipeline" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div class="lg:col-span-5 space-y-4">
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 space-y-4">
+                    <h2 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                        <i class="fa-solid fa-cloud-arrow-up text-indigo-600"></i> Audio Input
+                    </h2>
+
+                    <!-- Mode Toggle -->
+                    <div class="flex bg-slate-100 p-1 rounded-xl text-xs font-medium">
+                        <button id="modeFileBtn" onclick="switchAudioMode('file')" class="flex-1 py-1.5 rounded-lg bg-white shadow-sm text-indigo-600 font-semibold">
+                            <i class="fa-solid fa-file-audio mr-1"></i> File Upload
+                        </button>
+                        <button id="modeMicBtn" onclick="switchAudioMode('mic')" class="flex-1 py-1.5 rounded-lg text-slate-600 hover:text-slate-900">
+                            <i class="fa-solid fa-microphone mr-1"></i> Record from Mic
+                        </button>
+                    </div>
+
+                    <!-- Dropzone -->
+                    <div id="fileUploadContainer" class="space-y-3">
+                        <div id="dropZone" class="border-2 border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/40 rounded-xl p-6 text-center cursor-pointer transition">
+                            <input id="audioFileInput" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.webm,.mp4" class="hidden" onchange="handleFileSelected(this.files)">
+                            <div class="space-y-2" onclick="document.getElementById('audioFileInput').click()">
+                                <div class="w-10 h-10 mx-auto rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-lg">
+                                    <i class="fa-solid fa-cloud-arrow-up"></i>
+                                </div>
+                                <div class="text-xs font-semibold text-slate-700">Choose an audio file or drag &amp; drop</div>
+                                <div class="text-[11px] text-slate-400">Supports WAV, MP3, M4A, WEBM, MP4</div>
+                            </div>
+                        </div>
+                        <div id="selectedFileInfo" class="hidden text-xs bg-indigo-50 text-indigo-700 p-2.5 rounded-lg flex items-center justify-between border border-indigo-100">
+                            <div class="flex items-center gap-2 truncate">
+                                <i class="fa-solid fa-file-audio text-indigo-500"></i>
+                                <span id="selectedFileName" class="font-medium truncate">recording.wav</span>
+                                <span id="selectedFileSize" class="text-indigo-400"></span>
+                            </div>
+                            <button onclick="clearSelectedFile()" class="text-indigo-400 hover:text-indigo-600 text-xs">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                        
+                        <!-- Sample WAV button -->
+                        <div class="bg-indigo-50/50 border border-indigo-100 rounded-xl p-2.5 flex items-center justify-between text-xs">
+                            <span class="text-indigo-900 font-medium"><i class="fa-solid fa-music text-indigo-600 mr-1"></i> Sample Meeting Audio</span>
+                            <button onclick="loadSampleAudio()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded-md font-medium text-[11px] transition">
+                                Load Sample
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Mic Recorder -->
+                    <div id="micRecordContainer" class="hidden space-y-3 text-center">
+                        <div class="border border-slate-200 rounded-xl p-5 bg-slate-50 space-y-3">
+                            <div id="recordTimer" class="text-3xl font-mono font-bold text-slate-700">00:00</div>
+                            <div class="flex justify-center gap-3">
+                                <button id="startRecordBtn" onclick="startMicRecording()" class="bg-rose-500 hover:bg-rose-600 text-white font-medium px-4 py-2 rounded-xl transition text-xs flex items-center gap-1.5">
+                                    <i class="fa-solid fa-circle"></i> Start
+                                </button>
+                                <button id="stopRecordBtn" onclick="stopMicRecording()" disabled class="bg-slate-300 text-slate-500 font-medium px-4 py-2 rounded-xl transition text-xs flex items-center gap-1.5 cursor-not-allowed">
+                                    <i class="fa-solid fa-square"></i> Stop
+                                </button>
+                            </div>
+                            <audio id="recordedAudioPreview" controls class="hidden w-full mt-2"></audio>
+                        </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <button id="uploadAudioBtn" onclick="uploadAndTranscribeAudio()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-semibold py-2.5 rounded-xl shadow-sm transition flex items-center justify-center gap-2 text-xs">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Upload Audio &rarr; Transcribe &rarr; Clean MOM
+                    </button>
                 </div>
             </div>
 
-        </div>
+            <!-- Right Audio Pipeline Results -->
+            <div class="lg:col-span-7 space-y-4">
+                <div id="audioPipelineProgress" class="hidden bg-white rounded-2xl p-8 shadow-sm border border-slate-200 text-center space-y-3">
+                    <i class="fa-solid fa-spinner fa-spin text-2xl text-indigo-600"></i>
+                    <h3 class="font-bold text-slate-800 text-sm">Processing Audio with Sarvam AI...</h3>
+                    <p class="text-xs text-slate-500">Transcribing audio with diarization, saving to database, and generating clean MOM summary.</p>
+                </div>
+
+                <div id="audioPipelineResults" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+                    <div class="flex justify-between items-center border-b pb-3">
+                        <h3 class="font-bold text-slate-800 text-sm" id="audioResultTitle">Transcription Result</h3>
+                        <span class="clean-badge text-xs px-2 py-0.5 rounded-full font-semibold">Done</span>
+                    </div>
+                    <div id="audioResultMom" class="prose prose-sm max-w-none text-slate-800"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========================================================================= -->
+        <!-- MODE 3: AUTH & SETTINGS                                                  -->
+        <!-- ========================================================================= -->
+        <section id="sectionSettings" class="hidden max-w-3xl mx-auto space-y-6">
+            <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-4">
+                <h2 class="font-bold text-slate-800 text-base flex items-center gap-2">
+                    <i class="fa-solid fa-shield-halved text-indigo-600"></i> Authentication &amp; Token
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <div>
+                        <label class="block font-semibold text-slate-600 mb-1">Email</label>
+                        <input id="authEmail" type="email" value="admin@meetingrecorder.dev" class="w-full px-3 py-2 border rounded-lg text-slate-700 bg-slate-50">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-600 mb-1">Password</label>
+                        <input id="authPassword" type="password" value="Admin@123" class="w-full px-3 py-2 border rounded-lg text-slate-700 bg-slate-50">
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="login()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-lg text-xs transition">
+                        Sign In / Get JWT Token
+                    </button>
+                    <button onclick="quickLogin()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-xs transition">
+                        Quick Admin Sign In
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-4">
+                <h2 class="font-bold text-slate-800 text-base flex items-center gap-2">
+                    <i class="fa-solid fa-key text-indigo-600"></i> Sarvam AI API Key
+                </h2>
+                <p class="text-xs text-slate-500">The backend defaults to the system Sarvam API key in <code>appsettings.json</code>, or you can validate &amp; save your custom user key.</p>
+                <div class="flex gap-2 text-xs">
+                    <input id="customApiKeyInput" type="password" placeholder="sk_mhasr8c7_..." class="flex-1 px-3 py-2 border rounded-lg text-slate-700 bg-slate-50 font-mono">
+                    <button onclick="saveApiKey()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-lg transition">
+                        Validate &amp; Save Key
+                    </button>
+                </div>
+                <div id="keyStatusText" class="text-xs text-slate-500"></div>
+            </div>
+        </section>
+
     </main>
 
     <!-- Footer -->
     <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400">
-        Meeting Recorder Backend &bull; Sarvam AI STT & LLM Summarization Studio
+        Meeting Recorder Clean Architecture API &bull; ASP.NET Core 9 &bull; Sarvam AI STT &amp; LLM
     </footer>
 
-    <!-- Logic Script -->
+    <!-- App Script -->
     <script>
+        // Pre-loaded Test Templates
+        const TEMPLATES = {
+            pooja: `Speaker 1: Hi everyone, I am Pooja. Today I am presenting our new meeting intelligence application. The goal of this application is to record meetings, provide real-time speech-to-text translation across multiple Indian languages, and automatically generate clean Minutes of Meeting summaries. This will help distributed teams stay aligned and save time on manual documentation. Next week we will schedule a technical review to finalize the API architecture.`,
+            
+            passenger: `Speaker 1: Well, you only need the light when it's burning low. Only miss the sun when it starts to snow. Only know you love her when you let her go. Only know you've been high when you're feeling low. Only hate the road when you're missing home. And you let her go. Staring at the ceiling in the dark, same old empty feeling in your heart.`,
+            
+            sprint: `Speaker 1: Good morning team. Let's do a quick sync on Sprint 14 deliverables.
+Speaker 2: I completed the chunked upload pipeline with SHA-256 validation and retry endpoints. All unit tests pass.
+Speaker 3: The Sarvam STT and clean MOM summary formatting has been implemented. We eliminated all disclaimers, preambles, and bracketed date placeholders.
+Speaker 1: Fantastic progress. Action item for Friday: deploy the updated build to staging and conduct end-to-end load testing.`
+        };
+
         let jwtToken = localStorage.getItem('mr_jwt') || '';
+        let currentGeneratedMom = '';
         let selectedAudioFile = null;
         let mediaRecorder = null;
         let audioChunks = [];
         let recordTimerInterval = null;
         let recordSeconds = 0;
-        let currentApiResponse = null;
-        let currentSummary = '';
-        let currentFullTranscript = '';
-        let currentRecordingId = null;
 
-        // Init
-        window.addEventListener('DOMContentLoaded', async () => {
+        function getBaseUrl() {
+            const inputVal = document.getElementById('apiBaseUrl').value.trim();
+            if (inputVal) return inputVal.replace(/\/+$/, '');
+            return window.location.origin;
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('apiBaseUrl').value = window.location.origin;
             if (jwtToken) {
                 updateAuthStatus(true);
-                await loadApiKeyStatus();
             }
+            loadTemplate('pooja');
+            document.getElementById('momInputTranscript').addEventListener('input', updateWordCount);
         });
 
-        function updateAuthStatus(isAuthenticated) {
+        function updateWordCount() {
+            const text = document.getElementById('momInputTranscript').value.trim();
+            const words = text ? text.split(/\s+/).length : 0;
+            document.getElementById('transcriptWordCount').textContent = `${words} words`;
+        }
+
+        function loadTemplate(key) {
+            if (TEMPLATES[key]) {
+                document.getElementById('momInputTranscript').value = TEMPLATES[key];
+                updateWordCount();
+            }
+        }
+
+        function switchNavMode(mode) {
+            document.getElementById('sectionMomTester').classList.add('hidden');
+            document.getElementById('sectionAudioPipeline').classList.add('hidden');
+            document.getElementById('sectionSettings').classList.add('hidden');
+
+            document.getElementById('navTabMom').className = 'main-tab-btn py-3.5 px-2 flex items-center gap-2 text-slate-500 hover:text-slate-800';
+            document.getElementById('navTabAudio').className = 'main-tab-btn py-3.5 px-2 flex items-center gap-2 text-slate-500 hover:text-slate-800';
+            document.getElementById('navTabSettings').className = 'main-tab-btn py-3.5 px-2 flex items-center gap-2 text-slate-500 hover:text-slate-800';
+
+            if (mode === 'mom') {
+                document.getElementById('sectionMomTester').classList.remove('hidden');
+                document.getElementById('navTabMom').className = 'main-tab-btn active py-3.5 px-2 flex items-center gap-2 text-indigo-700 border-b-2 border-indigo-600 font-bold';
+            } else if (mode === 'audio') {
+                document.getElementById('sectionAudioPipeline').classList.remove('hidden');
+                document.getElementById('navTabAudio').className = 'main-tab-btn active py-3.5 px-2 flex items-center gap-2 text-indigo-700 border-b-2 border-indigo-600 font-bold';
+            } else if (mode === 'settings') {
+                document.getElementById('sectionSettings').classList.remove('hidden');
+                document.getElementById('navTabSettings').className = 'main-tab-btn active py-3.5 px-2 flex items-center gap-2 text-indigo-700 border-b-2 border-indigo-600 font-bold';
+            }
+        }
+
+        function updateAuthStatus(isAuthed) {
             const badge = document.getElementById('authStatusBadge');
-            if (isAuthenticated) {
-                badge.className = 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5';
-                badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Authenticated';
+            if (isAuthed) {
+                badge.className = 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 text-xs px-3 py-1 rounded-full flex items-center gap-1.5';
+                badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Signed In';
             } else {
-                badge.className = 'bg-rose-500/20 text-rose-200 border border-rose-500/40 text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5';
-                badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> Not Authenticated';
+                badge.className = 'bg-rose-500/20 text-rose-200 border border-rose-500/40 text-xs px-3 py-1 rounded-full flex items-center gap-1.5';
+                badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> Not Signed In';
             }
         }
 
-        async function loadApiKeyStatus() {
-            if (!jwtToken) return;
-            try {
-                const res = await fetch('/api/Users/api-key', {
-                    headers: { 'Authorization': `Bearer ${jwtToken}` }
-                });
-                const data = await res.json();
-                if (res.ok && data.success && data.data) {
-                    const info = data.data;
-                    const badge = document.getElementById('activeKeyBadge');
-                    const maskedDisplay = document.getElementById('currentMaskedKeyDisplay');
-                    const sourceBadge = document.getElementById('keySourceBadge');
-
-                    if (info.has_custom_key) {
-                        badge.className = 'text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1';
-                        badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-indigo-500"></span> Custom User Key';
-                        maskedDisplay.textContent = info.masked_key || 'Custom Key Active';
-                        sourceBadge.textContent = 'Custom';
-                        sourceBadge.className = 'text-[11px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md font-medium';
-                    } else {
-                        badge.className = 'text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1';
-                        badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> System Default';
-                        maskedDisplay.textContent = info.masked_key || 'System Default';
-                        sourceBadge.textContent = 'System';
-                        sourceBadge.className = 'text-[11px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-md font-medium';
-                    }
-                }
-            } catch (err) {
-                console.error('Failed to load API key status:', err);
-            }
-        }
-
-        async function validateApiKey() {
-            if (!jwtToken) {
-                alert('Please sign in first.');
-                return;
-            }
-            const apiKey = document.getElementById('customApiKeyInput').value.trim();
-            if (!apiKey) {
-                alert('Please enter an API key to test.');
-                return;
-            }
-
-            const btn = document.getElementById('testKeyBtn');
-            const statusDiv = document.getElementById('keyActionStatus');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Testing...';
-            statusDiv.className = 'hidden';
-
-            try {
-                const res = await fetch('/api/Users/api-key/validate', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${jwtToken}`
-                    },
-                    body: JSON.stringify({ api_key: apiKey })
-                });
-                const data = await res.json();
-                statusDiv.classList.remove('hidden');
-                if (res.ok && data.success && data.data?.is_valid) {
-                    statusDiv.className = 'text-xs p-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200';
-                    statusDiv.innerHTML = '<i class="fa-solid fa-circle-check text-emerald-600 mr-1"></i> Key is valid and active on Sarvam AI!';
-                } else {
-                    statusDiv.className = 'text-xs p-2 rounded-lg bg-rose-50 text-rose-700 border border-rose-200';
-                    statusDiv.innerHTML = `<i class="fa-solid fa-circle-xmark text-rose-600 mr-1"></i> ${data.message || 'Key is invalid or unauthorized.'}`;
-                }
-            } catch (err) {
-                statusDiv.classList.remove('hidden');
-                statusDiv.className = 'text-xs p-2 rounded-lg bg-rose-50 text-rose-700 border border-rose-200';
-                statusDiv.innerHTML = `<i class="fa-solid fa-circle-xmark text-rose-600 mr-1"></i> Test error: ${err.message}`;
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fa-solid fa-vial text-amber-500"></i> Test Key';
-            }
-        }
-
-        async function saveApiKey() {
-            if (!jwtToken) {
-                alert('Please sign in first.');
-                return;
-            }
-            const apiKey = document.getElementById('customApiKeyInput').value.trim();
-            if (!apiKey) {
-                alert('Please enter an API key to validate and save.');
-                return;
-            }
-
-            const btn = document.getElementById('saveKeyBtn');
-            const statusDiv = document.getElementById('keyActionStatus');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Validating & Saving...';
-            statusDiv.className = 'hidden';
-
-            try {
-                const res = await fetch('/api/Users/api-key', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${jwtToken}`
-                    },
-                    body: JSON.stringify({ api_key: apiKey, validate: true })
-                });
-                const data = await res.json();
-                statusDiv.classList.remove('hidden');
-                if (res.ok && data.success) {
-                    statusDiv.className = 'text-xs p-2.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200';
-                    statusDiv.innerHTML = '<i class="fa-solid fa-circle-check text-emerald-600 mr-1"></i> API Key is valid and saved to your account in DB!';
-                    document.getElementById('customApiKeyInput').value = '';
-                    await loadApiKeyStatus();
-                } else {
-                    statusDiv.className = 'text-xs p-2.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200';
-                    statusDiv.innerHTML = `<i class="fa-solid fa-circle-xmark text-rose-600 mr-1"></i> ${data.message || 'The provided Sarvam API key is invalid or unauthorized.'}`;
-                }
-            } catch (err) {
-                statusDiv.classList.remove('hidden');
-                statusDiv.className = 'text-xs p-2.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200';
-                statusDiv.innerHTML = `<i class="fa-solid fa-circle-xmark text-rose-600 mr-1"></i> Error: ${err.message}`;
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fa-solid fa-shield-check mr-1"></i> Validate & Save Key';
-            }
-        }
-
-        async function deleteApiKey() {
-            if (!jwtToken) {
-                alert('Please sign in first.');
-                return;
-            }
-            if (!confirm('Are you sure you want to delete your custom API key and revert back to the system default / purchased key?')) {
-                return;
-            }
-
-            const btn = document.getElementById('deleteKeyBtn');
-            const statusDiv = document.getElementById('keyActionStatus');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Deleting...';
-            statusDiv.className = 'hidden';
-
-            try {
-                const res = await fetch('/api/Users/api-key', {
-                    method: 'DELETE',
-                    headers: { 'Authorization': `Bearer ${jwtToken}` }
-                });
-                const data = await res.json();
-                statusDiv.classList.remove('hidden');
-                if (res.ok && data.success) {
-                    statusDiv.className = 'text-xs p-2.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200';
-                    statusDiv.innerHTML = '<i class="fa-solid fa-trash-can text-emerald-600 mr-1"></i> Custom API key deleted from database! Active key reverted to System Default.';
-                    document.getElementById('customApiKeyInput').value = '';
-                    await loadApiKeyStatus();
-                } else {
-                    statusDiv.className = 'text-xs p-2.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200';
-                    statusDiv.innerHTML = `<i class="fa-solid fa-circle-xmark text-rose-600 mr-1"></i> ${data.message || 'Failed to delete API key.'}`;
-                }
-            } catch (err) {
-                statusDiv.classList.remove('hidden');
-                statusDiv.className = 'text-xs p-2.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200';
-                statusDiv.innerHTML = `<i class="fa-solid fa-circle-xmark text-rose-600 mr-1"></i> Delete error: ${err.message}`;
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fa-solid fa-trash-can text-rose-600 mr-1"></i> Delete Custom Key';
-            }
-        }
-
-        function toggleKeyVisibility() {
-            const input = document.getElementById('customApiKeyInput');
-            const icon = document.getElementById('eyeIcon');
-            if (input.type === 'password') {
-                input.type = 'text';
-                icon.className = 'fa-regular fa-eye-slash';
-            } else {
-                input.type = 'password';
-                icon.className = 'fa-regular fa-eye';
-            }
+        async function ensureAuth() {
+            if (jwtToken) return true;
+            return await quickLogin();
         }
 
         async function login() {
-            const email = document.getElementById('authEmail').value;
-            const password = document.getElementById('authPassword').value;
+            const email = document.getElementById('authEmail').value.trim();
+            const password = document.getElementById('authPassword').value.trim();
+            const baseUrl = getBaseUrl();
 
             try {
-                const res = await fetch('/api/auth/login', {
+                const res = await fetch(`${baseUrl}/api/auth/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password })
@@ -607,44 +455,107 @@
                     jwtToken = data.data.token;
                     localStorage.setItem('mr_jwt', jwtToken);
                     updateAuthStatus(true);
-                    await loadApiKeyStatus();
-                    alert('Login successful! You can now configure your API key or upload recordings.');
+                    return true;
                 } else {
-                    alert('Login failed: ' + (data.message || 'Check credentials'));
+                    alert('Sign in failed: ' + (data.message || 'Check credentials'));
+                    return false;
                 }
             } catch (err) {
-                alert('Login request error: ' + err.message);
+                alert('Connection error: ' + err.message);
+                return false;
             }
         }
 
         async function quickLogin() {
             document.getElementById('authEmail').value = 'admin@meetingrecorder.dev';
             document.getElementById('authPassword').value = 'Admin@123';
-            await login();
+            return await login();
         }
 
-        async function quickDemoLogin() {
-            document.getElementById('authEmail').value = 'demo@meetingrecorder.dev';
-            document.getElementById('authPassword').value = 'Demo@123';
-            await login();
+        async function quickAuthAndGenerate() {
+            const authed = await ensureAuth();
+            if (!authed) return;
+
+            const text = document.getElementById('momInputTranscript').value.trim();
+            if (!text) {
+                alert('Please enter or select a transcript first.');
+                return;
+            }
+
+            const languageCode = document.getElementById('momLanguage').value;
+            const baseUrl = getBaseUrl();
+
+            document.getElementById('momEmptyState').classList.add('hidden');
+            document.getElementById('momOutputCard').classList.add('hidden');
+            document.getElementById('momLoadingState').classList.remove('hidden');
+            document.getElementById('btnGenerateMom').disabled = true;
+
+            try {
+                const res = await fetch(`${baseUrl}/api/transcription/summarize`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${jwtToken}`
+                    },
+                    body: JSON.stringify({ text, language_code: languageCode })
+                });
+
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.message || 'Failed to generate MOM summary');
+                }
+
+                currentGeneratedMom = data.data.summary;
+                displayCleanMom(currentGeneratedMom);
+            } catch (err) {
+                alert('Error generating MOM: ' + err.message);
+                document.getElementById('momEmptyState').classList.remove('hidden');
+            } finally {
+                document.getElementById('momLoadingState').classList.add('hidden');
+                document.getElementById('btnGenerateMom').disabled = false;
+            }
         }
 
-        function switchAudioMode(mode) {
-            const fileBtn = document.getElementById('modeFileBtn');
-            const micBtn = document.getElementById('modeMicBtn');
-            const fileContainer = document.getElementById('fileUploadContainer');
-            const micContainer = document.getElementById('micRecordContainer');
+        function displayCleanMom(markdown) {
+            document.getElementById('momRenderedHtml').innerHTML = marked.parse(markdown);
+            document.getElementById('momRawText').value = markdown;
+            document.getElementById('momGeneratedTime').textContent = new Date().toLocaleTimeString();
+            document.getElementById('momOutputCard').classList.remove('hidden');
+        }
 
-            if (mode === 'file') {
-                fileBtn.className = 'flex-1 py-1.5 rounded-lg bg-white shadow-sm text-indigo-600 font-semibold';
-                micBtn.className = 'flex-1 py-1.5 rounded-lg text-slate-600 hover:text-slate-900';
-                fileContainer.classList.remove('hidden');
-                micContainer.classList.add('hidden');
+        function switchMomView(view) {
+            if (view === 'rendered') {
+                document.getElementById('btnMomViewRendered').className = 'sub-tab-btn active text-xs px-2.5 py-1 rounded-md font-medium';
+                document.getElementById('btnMomViewRaw').className = 'sub-tab-btn text-xs px-2.5 py-1 rounded-md text-slate-600 hover:bg-slate-200';
+                document.getElementById('momRenderedView').classList.remove('hidden');
+                document.getElementById('momRawView').classList.add('hidden');
             } else {
-                micBtn.className = 'flex-1 py-1.5 rounded-lg bg-white shadow-sm text-indigo-600 font-semibold';
-                fileBtn.className = 'flex-1 py-1.5 rounded-lg text-slate-600 hover:text-slate-900';
-                micContainer.classList.remove('hidden');
-                fileContainer.classList.add('hidden');
+                document.getElementById('btnMomViewRaw').className = 'sub-tab-btn active text-xs px-2.5 py-1 rounded-md font-medium';
+                document.getElementById('btnMomViewRendered').className = 'sub-tab-btn text-xs px-2.5 py-1 rounded-md text-slate-600 hover:bg-slate-200';
+                document.getElementById('momRawView').classList.remove('hidden');
+                document.getElementById('momRenderedView').classList.add('hidden');
+            }
+        }
+
+        function copyCurrentMom() {
+            if (currentGeneratedMom) {
+                navigator.clipboard.writeText(currentGeneratedMom);
+                alert('MOM Markdown copied to clipboard!');
+            }
+        }
+
+        // Mode 2: Audio Upload & Transcribe
+        function switchAudioMode(mode) {
+            if (mode === 'file') {
+                document.getElementById('modeFileBtn').className = 'flex-1 py-1.5 rounded-lg bg-white shadow-sm text-indigo-600 font-semibold';
+                document.getElementById('modeMicBtn').className = 'flex-1 py-1.5 rounded-lg text-slate-600 hover:text-slate-900';
+                document.getElementById('fileUploadContainer').classList.remove('hidden');
+                document.getElementById('micRecordContainer').classList.add('hidden');
+            } else {
+                document.getElementById('modeMicBtn').className = 'flex-1 py-1.5 rounded-lg bg-white shadow-sm text-indigo-600 font-semibold';
+                document.getElementById('modeFileBtn').className = 'flex-1 py-1.5 rounded-lg text-slate-600 hover:text-slate-900';
+                document.getElementById('micRecordContainer').classList.remove('hidden');
+                document.getElementById('fileUploadContainer').classList.add('hidden');
             }
         }
 
@@ -654,26 +565,6 @@
             document.getElementById('selectedFileName').textContent = selectedAudioFile.name;
             document.getElementById('selectedFileSize').textContent = `(${(selectedAudioFile.size / (1024 * 1024)).toFixed(2)} MB)`;
             document.getElementById('selectedFileInfo').classList.remove('hidden');
-            
-            if (!document.getElementById('recTitle').value) {
-                document.getElementById('recTitle').value = selectedAudioFile.name.replace(/\.[^/.]+$/, "");
-            }
-        }
-
-        async function loadSampleAudio() {
-            try {
-                const res = await fetch('/sample_meeting.wav');
-                const blob = await res.blob();
-                selectedAudioFile = new File([blob], 'sample_meeting.wav', { type: 'audio/wav' });
-                document.getElementById('selectedFileName').textContent = selectedAudioFile.name;
-                document.getElementById('selectedFileSize').textContent = `(${(selectedAudioFile.size / (1024 * 1024)).toFixed(2)} MB)`;
-                document.getElementById('selectedFileInfo').classList.remove('hidden');
-                document.getElementById('recTitle').value = 'Sprint Planning Sync (Sample)';
-                document.getElementById('recLanguage').value = 'en-IN';
-                switchAudioMode('file');
-            } catch (err) {
-                alert('Could not load sample audio: ' + err.message);
-            }
         }
 
         function clearSelectedFile() {
@@ -682,21 +573,20 @@
             document.getElementById('selectedFileInfo').classList.add('hidden');
         }
 
-        // Drag & Drop
-        const dropZone = document.getElementById('dropZone');
-        ['dragenter', 'dragover'].forEach(eventName => {
-            dropZone.addEventListener(eventName, (e) => { e.preventDefault(); dropZone.classList.add('border-indigo-500', 'bg-indigo-50/50'); });
-        });
-        ['dragleave', 'drop'].forEach(eventName => {
-            dropZone.addEventListener(eventName, (e) => { e.preventDefault(); dropZone.classList.remove('border-indigo-500', 'bg-indigo-50/50'); });
-        });
-        dropZone.addEventListener('drop', (e) => {
-            if (e.dataTransfer.files?.length) {
-                handleFileSelected(e.dataTransfer.files);
+        async function loadSampleAudio() {
+            try {
+                const baseUrl = getBaseUrl();
+                const res = await fetch(`${baseUrl}/sample_meeting.wav`);
+                const blob = await res.blob();
+                selectedAudioFile = new File([blob], 'sample_meeting.wav', { type: 'audio/wav' });
+                document.getElementById('selectedFileName').textContent = selectedAudioFile.name;
+                document.getElementById('selectedFileSize').textContent = `(${(selectedAudioFile.size / (1024 * 1024)).toFixed(2)} MB)`;
+                document.getElementById('selectedFileInfo').classList.remove('hidden');
+            } catch (err) {
+                alert('Could not load sample audio: ' + err.message);
             }
-        });
+        }
 
-        // Microphone Recording
         async function startMicRecording() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -706,17 +596,15 @@
                 mediaRecorder.onstop = () => {
                     const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                     selectedAudioFile = new File([audioBlob], `mic_recording_${Date.now()}.webm`, { type: 'audio/webm' });
-                    const audioUrl = URL.createObjectURL(audioBlob);
                     const preview = document.getElementById('recordedAudioPreview');
-                    preview.src = audioUrl;
+                    preview.src = URL.createObjectURL(audioBlob);
                     preview.classList.remove('hidden');
                 };
 
                 mediaRecorder.start();
                 document.getElementById('startRecordBtn').disabled = true;
-                document.getElementById('startRecordBtn').classList.add('opacity-50');
                 document.getElementById('stopRecordBtn').disabled = false;
-                document.getElementById('stopRecordBtn').className = 'bg-rose-600 hover:bg-rose-700 text-white font-medium px-5 py-2.5 rounded-xl transition flex items-center gap-2 text-sm shadow-sm';
+                document.getElementById('stopRecordBtn').className = 'bg-rose-600 hover:bg-rose-700 text-white font-medium px-4 py-2 rounded-xl transition text-xs flex items-center gap-1.5 shadow-sm';
 
                 recordSeconds = 0;
                 recordTimerInterval = setInterval(() => {
@@ -726,7 +614,7 @@
                     document.getElementById('recordTimer').textContent = `${m}:${s}`;
                 }, 1000);
             } catch (err) {
-                alert('Microphone access error: ' + err.message);
+                alert('Microphone error: ' + err.message);
             }
         }
 
@@ -735,210 +623,81 @@
                 mediaRecorder.stop();
                 mediaRecorder.stream.getTracks().forEach(track => track.stop());
                 clearInterval(recordTimerInterval);
-
                 document.getElementById('startRecordBtn').disabled = false;
-                document.getElementById('startRecordBtn').classList.remove('opacity-50');
                 document.getElementById('stopRecordBtn').disabled = true;
-                document.getElementById('stopRecordBtn').className = 'bg-slate-300 text-slate-500 font-medium px-5 py-2.5 rounded-xl transition flex items-center gap-2 text-sm cursor-not-allowed';
+                document.getElementById('stopRecordBtn').className = 'bg-slate-300 text-slate-500 font-medium px-4 py-2 rounded-xl transition text-xs flex items-center gap-1.5 cursor-not-allowed';
             }
         }
 
-        // Upload and Transcribe
-        async function uploadAndTranscribe() {
-            if (!jwtToken) {
-                alert('Please sign in or click "Quick Admin Login" first.');
-                return;
-            }
+        async function uploadAndTranscribeAudio() {
+            const authed = await ensureAuth();
+            if (!authed) return;
+
             if (!selectedAudioFile) {
-                alert('Please select an audio file or record one using the microphone.');
+                alert('Please select or record an audio file first.');
                 return;
             }
 
-            const title = document.getElementById('recTitle').value || selectedAudioFile.name;
-            const languageCode = document.getElementById('recLanguage').value;
-            const type = document.getElementById('recType').value;
-
-            // UI Progress
-            document.getElementById('progressCard').classList.remove('hidden');
-            document.getElementById('errorCard').classList.add('hidden');
-            document.getElementById('resultsCard').classList.add('hidden');
-            document.getElementById('emptyPlaceholder').classList.add('hidden');
-            document.getElementById('uploadBtn').disabled = true;
-            document.getElementById('uploadBtn').classList.add('opacity-50');
-
-            let timerSec = 0;
-            const timer = setInterval(() => {
-                timerSec++;
-                document.getElementById('elapsedTime').textContent = `${timerSec}s`;
-            }, 1000);
+            const baseUrl = getBaseUrl();
+            document.getElementById('audioPipelineProgress').classList.remove('hidden');
+            document.getElementById('audioPipelineResults').classList.add('hidden');
+            document.getElementById('uploadAudioBtn').disabled = true;
 
             try {
                 const formData = new FormData();
                 formData.append('file', selectedAudioFile);
-                formData.append('title', title);
-                formData.append('languageCode', languageCode);
-                formData.append('type', type);
+                formData.append('title', selectedAudioFile.name);
+                formData.append('languageCode', 'en-IN');
 
-                // Step status updates
-                setTimeout(() => {
-                    const s1 = document.getElementById('step1Status');
-                    if (s1) s1.innerHTML = '<i class="fa-solid fa-check text-emerald-500"></i> Step 1: Uploaded audio file to server storage';
-                    const s2 = document.getElementById('step2Status');
-                    if (s2) {
-                        s2.className = 'flex items-center gap-2 text-slate-600';
-                        s2.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-indigo-500"></i> Step 2: Calling Sarvam AI Speech-to-Text (STT) & saving transcript to DB...';
-                    }
-                }, 1500);
-
-                setTimeout(() => {
-                    const s2 = document.getElementById('step2Status');
-                    if (s2) s2.innerHTML = '<i class="fa-solid fa-check text-emerald-500"></i> Step 2: Transcript received and saved to DB';
-                    const s3 = document.getElementById('step3Status');
-                    if (s3) {
-                        s3.className = 'flex items-center gap-2 text-slate-600';
-                        s3.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-indigo-500"></i> Step 3: Calling Sarvam AI (sarvam-105b) to generate MOM / Summary & saving to DB...';
-                    }
-                }, 3500);
-
-                const response = await fetch('/api/transcription/upload', {
+                const res = await fetch(`${baseUrl}/api/transcription/upload`, {
                     method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${jwtToken}`
-                    },
+                    headers: { 'Authorization': `Bearer ${jwtToken}` },
                     body: formData
                 });
 
-                clearInterval(timer);
-                const result = await response.json();
-                currentApiResponse = result;
-
-                if (!response.ok || !result.success) {
-                    throw new Error(result.message || result.errors?.[0] || 'Transcription failed');
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.message || 'Audio upload/transcription failed');
                 }
 
-                displayResults(result.data);
+                document.getElementById('audioResultTitle').textContent = data.data.title || 'Meeting Summary';
+                document.getElementById('audioResultMom').innerHTML = marked.parse(data.data.summary || 'No summary generated');
+                document.getElementById('audioPipelineResults').classList.remove('hidden');
             } catch (err) {
-                clearInterval(timer);
-                document.getElementById('errorCard').classList.remove('hidden');
-                document.getElementById('errorTitle').textContent = 'Upload or Transcription Error';
-                document.getElementById('errorMessage').textContent = err.message;
+                alert('Pipeline error: ' + err.message);
             } finally {
-                document.getElementById('progressCard').classList.add('hidden');
-                document.getElementById('uploadBtn').disabled = false;
-                document.getElementById('uploadBtn').classList.remove('opacity-50');
+                document.getElementById('audioPipelineProgress').classList.add('hidden');
+                document.getElementById('uploadAudioBtn').disabled = false;
             }
         }
 
-        function displayResults(data) {
-            currentRecordingId = data.recording_id;
-            currentSummary = data.summary || 'No summary generated.';
-            currentFullTranscript = data.transcript || '';
+        async function saveApiKey() {
+            const authed = await ensureAuth();
+            if (!authed) return;
 
-            document.getElementById('resultTitle').textContent = data.title || 'Untitled Recording';
-            document.getElementById('resultRecordingId').textContent = `ID: ${data.recording_id || 'N/A'}`;
-            document.getElementById('resultLanguage').textContent = `Language: ${data.source_language_code || 'en-IN'}`;
+            const apiKey = document.getElementById('customApiKeyInput').value.trim();
+            const baseUrl = getBaseUrl();
 
-            // Render MOM / Summary with Markdown
-            const renderedMom = marked.parse(currentSummary);
-            document.getElementById('renderedMomContainer').innerHTML = renderedMom;
-
-            // Render Diarized Transcript Lines
-            const linesContainer = document.getElementById('diarizedLinesContainer');
-            linesContainer.innerHTML = '';
-
-            const lines = data.transcription || [];
-            document.getElementById('lineCountBadge').textContent = `${lines.length} lines`;
-
-            if (lines.length === 0) {
-                linesContainer.innerHTML = '<div class="text-xs text-slate-400 p-4 text-center">No transcript lines found.</div>';
-            } else {
-                lines.forEach((line, index) => {
-                    const bubble = document.createElement('div');
-                    const colorClass = (index % 3 === 0) ? 'speaker-bubble-1' : (index % 3 === 1 ? 'speaker-bubble-2' : 'speaker-bubble-3');
-                    bubble.className = `p-3 rounded-xl ${colorClass} text-xs space-y-1`;
-                    
-                    const timeRange = (line.start_seconds !== undefined && line.start_seconds !== null)
-                        ? `<span class="text-slate-400 font-mono ml-2">[${formatSeconds(line.start_seconds)}${line.end_seconds ? ' - ' + formatSeconds(line.end_seconds) : ''}]</span>`
-                        : '';
-
-                    bubble.innerHTML = `
-                        <div class="font-bold text-slate-700 flex items-center justify-between">
-                            <span>${line.speaker || 'Speaker 1'}</span>
-                            ${timeRange}
-                        </div>
-                        <div class="text-slate-800">${escapeHtml(line.text)}</div>
-                    `;
-                    linesContainer.appendChild(bubble);
-                });
-            }
-
-            // Render Full Text
-            document.getElementById('fullTranscriptTextarea').value = currentFullTranscript;
-
-            // Render Raw JSON
-            document.getElementById('rawJsonResponse').textContent = JSON.stringify(currentApiResponse, null, 2);
-
-            // Show results card
-            document.getElementById('resultsCard').classList.remove('hidden');
-        }
-
-        async function fetchFromDb() {
-            if (!currentRecordingId) {
-                alert('No recording ID available.');
-                return;
-            }
             try {
-                const res = await fetch(`/api/recordings/${currentRecordingId}`, {
-                    headers: { 'Authorization': `Bearer ${jwtToken}` }
+                const res = await fetch(`${baseUrl}/api/Users/api-key`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${jwtToken}`
+                    },
+                    body: JSON.stringify({ api_key: apiKey })
                 });
+
                 const data = await res.json();
                 if (res.ok && data.success) {
-                    alert(`Database verification successful!\n\nRecording ID: ${data.data.id}\nTitle: ${data.data.title}\nStatus: ${data.data.transcription_status}\nSummary Present: ${!!data.data.summary}\nTranscript Items: ${data.data.transcript?.length || 0}`);
+                    document.getElementById('keyStatusText').textContent = 'Key validated and saved successfully!';
+                    alert('Sarvam API key saved!');
                 } else {
-                    alert('Error fetching from DB: ' + (data.message || 'Not found'));
+                    document.getElementById('keyStatusText').textContent = 'Validation error: ' + data.message;
+                    alert('Error: ' + data.message);
                 }
             } catch (err) {
-                alert('DB verification error: ' + err.message);
-            }
-        }
-
-        function switchResultTab(tab) {
-            ['mom', 'transcript', 'fulltext', 'json'].forEach(t => {
-                document.getElementById(`tab${capitalize(t)}Btn`).className = 'tab-btn py-3 px-4 flex items-center gap-2 text-slate-500 hover:text-slate-800';
-                document.getElementById(`tab${capitalize(t)}Content`).classList.add('hidden');
-            });
-
-            document.getElementById(`tab${capitalize(tab)}Btn`).className = 'tab-btn active py-3 px-4 flex items-center gap-2 font-semibold text-indigo-600';
-            document.getElementById(`tab${capitalize(tab)}Content`).classList.remove('hidden');
-        }
-
-        function formatSeconds(sec) {
-            const m = String(Math.floor(sec / 60)).padStart(2, '0');
-            const s = String(Math.floor(sec % 60)).padStart(2, '0');
-            return `${m}:${s}`;
-        }
-
-        function capitalize(str) {
-            if (str === 'mom') return 'Mom';
-            if (str === 'fulltext') return 'Fulltext';
-            return str.charAt(0).toUpperCase() + str.slice(1);
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        function copyToClipboard(text) {
-            navigator.clipboard.writeText(text);
-            alert('Copied to clipboard!');
-        }
-
-        function copyJsonToClipboard() {
-            if (currentApiResponse) {
-                navigator.clipboard.writeText(JSON.stringify(currentApiResponse, null, 2));
-                alert('Copied JSON to clipboard!');
+                alert('Save key error: ' + err.message);
             }
         }
     </script>

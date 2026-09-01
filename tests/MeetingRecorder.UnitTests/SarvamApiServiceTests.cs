@@ -143,7 +143,7 @@ public class SarvamApiServiceTests
                 {
                     ""message"": {
                         ""role"": ""assistant"",
-                        ""content"": ""### Minutes of Meeting (MOM)\n\n**1. Executive Summary:** The team discussed Q3 release roadmap.\n**2. Key Points:** Architecture review completed.\n**3. Action Items:** John to deploy staging build by Friday.""
+                        ""content"": ""### **1. Executive Summary / Overview**\nThe team discussed Q3 release roadmap.\n\n### **2. Key Discussion Points**\n* **Point:** Architecture review completed.\n\n### **3. Decisions Made & Action Items**\n* **Action Item:** John to deploy staging build by Friday.""
                     }
                 }
             ]
@@ -162,8 +162,8 @@ public class SarvamApiServiceTests
         var summary = await sut.SummarizeTranscriptAsync(lines);
 
         summary.Should().NotBeNull();
-        summary.Should().Contain("Minutes of Meeting (MOM)");
-        summary.Should().Contain("Action Items");
+        summary.Should().Contain("1. Executive Summary / Overview");
+        summary.Should().Contain("3. Decisions Made & Action Items");
     }
 
     [Fact]
@@ -181,6 +181,7 @@ public class SarvamApiServiceTests
         var summary = await sut.SummarizeTranscriptAsync(lines);
 
         summary.Should().NotBeNull();
+        summary.Should().Contain("1. Executive Summary / Overview");
         summary.Should().Contain("We decided on adopting the new cloud architecture");
     }
 
@@ -194,6 +195,80 @@ public class SarvamApiServiceTests
         var summary = await sut.SummarizeTranscriptAsync(string.Empty);
 
         summary.Should().BeNull();
+    }
+
+    [Fact]
+    public void SanitizeSummary_RemovesConversationalPreamblesAndPlaceholders()
+    {
+        var dirtySummary = @"Of course. Below is a professional and structured Minutes of Meeting (MOM) based on the provided transcript. Given the brevity of the input, the summary is focused on accurately capturing the single point of discussion.
+ 
+---
+ 
+### **Meeting Minutes / Summary**
+ 
+**Date:** [Date of Meeting]
+**Attendees:** [Name, Pooja - Speaker 1]
+**Meeting Type:** Team Introduction / Project Update
+**Subject:** Introduction to a Meeting Recording, Translation, and Summarization Application
+ 
+---
+ 
+#### **1. Executive Summary / Overview**
+ 
+This meeting snippet began with an introduction from Pooja (Speaker 1). She presented a project she is leading.
+ 
+#### **2. Key Discussion Points**
+ 
+*   **Speaker Introduction:** Pooja introduced herself.
+*   **Project Goal:** The primary objective of the application is to solve common challenges.
+ 
+#### **3. Decisions Made & Action Items**
+ 
+*   **Next Steps (Inferred):** A potential next step is to schedule a follow-up session.
+ 
+---
+***Note:*** This summary is based on a partial transcript or meeting snippet.";
+
+        var clean = SarvamApiService.SanitizeSummary(dirtySummary);
+
+        clean.Should().NotContain("Of course. Below is");
+        clean.Should().NotContain("[Date of Meeting]");
+        clean.Should().NotContain("***Note:***");
+        clean.Should().StartWith("### **1. Executive Summary / Overview**");
+        clean.Should().Contain("### **2. Key Discussion Points**");
+        clean.Should().Contain("### **3. Decisions Made & Action Items**");
+    }
+
+    [Fact]
+    public void SanitizeSummary_RemovesDisclaimerBlockAndLyricalNotes()
+    {
+        var disclaimerSummary = @"**Disclaimer:** The provided transcript appears to be the lyrics to the song ""Only Know You've Been High"" by Passenger, rather than a standard business meeting transcript. However, interpreting the lyrical themes as discussion points, here is a summary in the requested format.
+
+---
+
+### **Minutes of Meeting / MOM**
+
+**Date:** [Not specified]
+**Attendees:** Speaker 1
+
+---
+
+### **1. Executive Summary / Overview**
+
+The meeting centered on a profound discussion regarding loss, regret, and the painful realization of value.
+
+### **2. Key Discussion Points**
+
+*   **Recognition of Value in Scarcity:** The team discussed how value is often only recognized during crisis.
+*   **Appreciation Through Loss:** A key point was the tendency to miss something only after it.";
+
+        var clean = SarvamApiService.SanitizeSummary(disclaimerSummary);
+
+        clean.Should().NotContain("Disclaimer:");
+        clean.Should().NotContain("Only Know You've Been High");
+        clean.Should().NotContain("[Not specified]");
+        clean.Should().StartWith("### **1. Executive Summary / Overview**");
+        clean.Should().Contain("### **2. Key Discussion Points**");
     }
 
     [Fact]

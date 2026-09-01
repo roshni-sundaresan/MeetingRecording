@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meeting Recorder — Live MOM Summarizer Test Page</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        .gradient-bg { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #312e81 100%); }
+        .clean-badge { background-color: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+        .sub-tab-btn.active { background-color: #e0e7ff; color: #3730a3; font-weight: 700; }
+        pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col font-sans antialiased">
+
+    <!-- Header -->
+    <header class="gradient-bg text-white shadow-xl">
+        <div class="max-w-7xl mx-auto px-6 py-5 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-indigo-600/60 border border-indigo-400/40 flex items-center justify-center text-2xl shadow-inner">
+                    🎙️
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight">Meeting Recorder — Clean MOM Live Tester</h1>
+                    <p class="text-indigo-200 text-xs">Directly test Sarvam AI summarization and clean 3-section output formatting</p>
+                </div>
+            </div>
+            <div class="text-xs bg-indigo-950/80 border border-indigo-700/60 rounded-xl px-3 py-1.5 text-indigo-200 flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>Standalone Browser Mode (No Server / DB Needed)</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-6 py-6 flex-1 w-full space-y-6">
+
+        <!-- Step 1: API Key Configuration Box -->
+        <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 space-y-3">
+            <div class="flex items-center justify-between">
+                <label class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                    <i class="fa-solid fa-key text-indigo-600"></i> Enter Your Sarvam AI API Key:
+                </label>
+                <span class="text-xs text-slate-400">Key is saved securely in your browser's localStorage</span>
+            </div>
+            <div class="flex gap-2">
+                <div class="relative flex-1">
+                    <input id="sarvamApiKeyInput" type="password" placeholder="Paste your Sarvam API key here (e.g., sk_...)" class="w-full pl-3.5 pr-10 py-2.5 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none text-xs text-slate-800 bg-slate-50 border-slate-200 font-mono">
+                    <button type="button" onclick="toggleKeyVisibility()" class="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 text-sm">
+                        <i id="eyeIcon" class="fa-regular fa-eye"></i>
+                    </button>
+                </div>
+                <button onclick="saveApiKeyToLocal()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2.5 rounded-xl text-xs transition flex items-center gap-1.5 shadow-sm">
+                    <i class="fa-solid fa-floppy-disk"></i> Save Key
+                </button>
+            </div>
+            <div id="apiKeySavedAlert" class="hidden text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 p-2 rounded-lg font-medium">
+                <i class="fa-solid fa-check mr-1"></i> API Key saved! You are ready to generate summaries.
+            </div>
+        </div>
+
+        <!-- Step 2: Transcript Input & Generator -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- Left Input Column -->
+            <div class="lg:col-span-5 space-y-4">
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h2 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                            <i class="fa-solid fa-file-lines text-indigo-600"></i> Meeting Transcript
+                        </h2>
+                        <span class="text-xs text-slate-400 font-mono" id="wordCountLabel">0 words</span>
+                    </div>
+
+                    <!-- Quick Sample Buttons -->
+                    <div class="space-y-1.5">
+                        <div class="flex justify-between items-center">
+                            <label class="block text-xs font-semibold text-slate-600">Pick a Sample Transcript:</label>
+                            <button onclick="loadRandomTemplate()" class="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1">
+                                <i class="fa-solid fa-shuffle"></i> Randomize
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button onclick="loadTemplate('pooja')" class="text-[11px] bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 font-medium py-2 px-2.5 rounded-lg border border-slate-200 transition text-left truncate">
+                                📌 1. Pooja App Intro
+                            </button>
+                            <button onclick="loadTemplate('passenger')" class="text-[11px] bg-slate-100 hover:bg-amber-50 hover:text-amber-700 text-slate-700 font-medium py-2 px-2.5 rounded-lg border border-slate-200 transition text-left truncate">
+                                🎵 2. Passenger Lyrics (Test)
+                            </button>
+                            <button onclick="loadTemplate('sprint')" class="text-[11px] bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 font-medium py-2 px-2.5 rounded-lg border border-slate-200 transition text-left truncate">
+                                🚀 3. Sprint Deliverables Sync
+                            </button>
+                            <button onclick="loadTemplate('executive')" class="text-[11px] bg-slate-100 hover:bg-purple-50 hover:text-purple-700 text-slate-700 font-medium py-2 px-2.5 rounded-lg border border-slate-200 transition text-left truncate">
+                                💼 4. Strategy &amp; Budget Sync
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Text Area -->
+                    <div>
+                        <textarea id="transcriptInput" rows="11" placeholder="Paste your meeting transcript text here..." class="w-full p-3.5 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none text-xs text-slate-700 bg-slate-50 border-slate-200 leading-relaxed font-mono resize-none"></textarea>
+                    </div>
+
+                    <!-- Language & Generate Action -->
+                    <div class="grid grid-cols-2 gap-3 text-xs">
+                        <div>
+                            <label class="block font-medium text-slate-600 mb-1">Language</label>
+                            <select id="languageSelect" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-slate-700 bg-slate-50 border-slate-200 text-xs">
+                                <option value="en-IN">English (India) - en-IN</option>
+                                <option value="hi-IN">Hindi - hi-IN</option>
+                                <option value="mr-IN">Marathi - mr-IN</option>
+                                <option value="ta-IN">Tamil - ta-IN</option>
+                                <option value="te-IN">Telugu - te-IN</option>
+                                <option value="gu-IN">Gujarati - gu-IN</option>
+                                <option value="kn-IN">Kannada - kn-IN</option>
+                                <option value="bn-IN">Bengali - bn-IN</option>
+                            </select>
+                        </div>
+                        <div class="flex items-end">
+                            <button onclick="generateCleanMom()" id="btnGenerate" class="w-full bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-semibold py-2 px-3 rounded-lg shadow-sm transition text-xs flex items-center justify-center gap-1.5">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i> Generate Clean MOM
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quality Checklist -->
+                <div class="bg-indigo-50/70 border border-indigo-100 rounded-2xl p-4 text-xs space-y-2">
+                    <div class="font-bold text-indigo-900 flex items-center gap-2">
+                        <i class="fa-solid fa-shield-halved text-indigo-600"></i>
+                        Server-Side Sanitization Rules:
+                    </div>
+                    <ul class="space-y-1.5 text-indigo-950">
+                        <li class="flex items-center gap-2">
+                            <i class="fa-solid fa-check text-emerald-600"></i>
+                            <span>No preambles (*"Of course..."*, *"Here is..."*)</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <i class="fa-solid fa-check text-emerald-600"></i>
+                            <span>No disclaimers or lyrical meta-notes</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <i class="fa-solid fa-check text-emerald-600"></i>
+                            <span>No bracketed date/attendee placeholders</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <i class="fa-solid fa-check text-emerald-600"></i>
+                            <span>Starts directly with 3 clean sections</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Right Results Column -->
+            <div class="lg:col-span-7 space-y-4">
+                
+                <!-- Loading State -->
+                <div id="loadingState" class="hidden bg-white rounded-2xl p-12 shadow-sm border border-slate-200 text-center space-y-3">
+                    <div class="w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto text-xl">
+                        <i class="fa-solid fa-spinner fa-spin"></i>
+                    </div>
+                    <h3 class="font-bold text-slate-800 text-sm">Generating Clean MOM via Sarvam AI...</h3>
+                    <p class="text-xs text-slate-500 max-w-sm mx-auto">Calling <code>sarvam-105b</code> chat completions and applying deterministic sanitization...</p>
+                </div>
+
+                <!-- Empty Placeholder -->
+                <div id="emptyState" class="bg-white rounded-2xl p-16 shadow-sm border border-slate-200 text-center space-y-3">
+                    <div class="w-14 h-14 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto text-2xl">
+                        <i class="fa-solid fa-file-lines"></i>
+                    </div>
+                    <h3 class="font-bold text-slate-800 text-sm">No Summary Generated Yet</h3>
+                    <p class="text-xs text-slate-500 max-w-md mx-auto">Enter your Sarvam API key above, select a test transcript on the left, and click <strong>"Generate Clean MOM"</strong> to verify the output live.</p>
+                </div>
+
+                <!-- Results Output Card -->
+                <div id="outputCard" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                    
+                    <!-- Output Top Header -->
+                    <div class="p-4 border-b border-slate-100 bg-slate-50/70 flex justify-between items-center">
+                        <div class="flex items-center gap-2">
+                            <span class="clean-badge text-xs px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1">
+                                <i class="fa-solid fa-circle-check"></i> Clean MOM Verified
+                            </span>
+                            <span class="text-xs text-slate-400 font-mono" id="timeGenerated"></span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="switchView('rendered')" id="btnViewRendered" class="sub-tab-btn active text-xs px-3 py-1.5 rounded-md transition">
+                                Formatted Output
+                            </button>
+                            <button onclick="switchView('raw')" id="btnViewRaw" class="sub-tab-btn text-xs px-3 py-1.5 rounded-md text-slate-600 hover:bg-slate-200 transition">
+                                Raw Markdown
+                            </button>
+                            <button onclick="switchView('diff')" id="btnViewDiff" class="sub-tab-btn text-xs px-3 py-1.5 rounded-md text-slate-600 hover:bg-slate-200 transition">
+                                Before vs After
+                            </button>
+                            <button onclick="copyOutput()" class="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold px-3 py-1.5 rounded-md transition flex items-center gap-1">
+                                <i class="fa-regular fa-copy"></i> Copy
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- View 1: Formatted HTML View -->
+                    <div id="viewRendered" class="p-6">
+                        <div id="renderedHtmlContainer" class="prose prose-sm max-w-none text-slate-800 leading-relaxed space-y-4"></div>
+                    </div>
+
+                    <!-- View 2: Raw Markdown View -->
+                    <div id="viewRaw" class="hidden p-4">
+                        <textarea id="rawMarkdownTextarea" readonly rows="16" class="w-full p-4 bg-slate-900 text-slate-100 rounded-xl font-mono text-xs focus:outline-none"></textarea>
+                    </div>
+
+                    <!-- View 3: Before vs After Diff View -->
+                    <div id="viewDiff" class="hidden p-4 space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="space-y-1">
+                                <div class="text-xs font-bold text-rose-700 flex items-center gap-1">
+                                    <i class="fa-solid fa-circle-xmark"></i> Raw Output from LLM (With Preambles / Disclaimers)
+                                </div>
+                                <textarea id="diffRawLlm" readonly rows="14" class="w-full p-3 bg-rose-50/50 border border-rose-200 text-slate-700 rounded-xl font-mono text-[11px]"></textarea>
+                            </div>
+                            <div class="space-y-1">
+                                <div class="text-xs font-bold text-emerald-700 flex items-center gap-1">
+                                    <i class="fa-solid fa-circle-check"></i> Sanitized Output (Clean 3-Section Format)
+                                </div>
+                                <textarea id="diffClean" readonly rows="14" class="w-full p-3 bg-emerald-50/50 border border-emerald-200 text-slate-700 rounded-xl font-mono text-[11px]"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400">
+        Meeting Recorder &bull; Sarvam AI Speech &amp; LLM Studio
+    </footer>
+
+    <!-- Logic Script -->
+    <script>
+        const TEMPLATES = {
+            pooja: `Speaker 1: Hi everyone, I am Pooja. Today I am presenting our new meeting intelligence application. The goal of this application is to record meetings, provide real-time speech-to-text translation across multiple Indian languages, and automatically generate clean Minutes of Meeting summaries. This will help distributed teams stay aligned and save time on manual documentation. Next week we will schedule a technical review to finalize the API architecture.`,
+            
+            passenger: `Speaker 1: Well, you only need the light when it's burning low. Only miss the sun when it starts to snow. Only know you love her when you let her go. Only know you've been high when you're feeling low. Only hate the road when you're missing home. And you let her go. Staring at the ceiling in the dark, same old empty feeling in your heart.`,
+            
+            sprint: `Speaker 1: Good morning team. Let's do a quick sync on Sprint 14 deliverables.
+Speaker 2: I completed the chunked upload pipeline with SHA-256 validation and retry endpoints. All unit tests pass.
+Speaker 3: The Sarvam STT and clean MOM summary formatting has been implemented. We eliminated all disclaimers, preambles, and bracketed date placeholders.
+Speaker 1: Fantastic progress. Action item for Friday: deploy the updated build to staging and conduct end-to-end load testing.`,
+
+            executive: `Speaker 1: Welcome board members. Today we are reviewing the Q3 revenue performance and allocating the engineering budget for AI infrastructure.
+Speaker 2: We have achieved 140% of target ARR this quarter. Our biggest growth driver was enterprise subscriptions for our real-time meeting transcription engine.
+Speaker 3: We propose expanding the server infrastructure budget by $25,000 to support high-concurrency transcription pipelines.
+Speaker 1: Approved. Let us finalize the vendor contracts by next Tuesday.`
+        };
+
+        const TEMPLATE_KEYS = Object.keys(TEMPLATES);
+        let currentTemplateIndex = 0;
+        let activeCleanSummary = '';
+        let activeRawLlmResponse = '';
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedKey = localStorage.getItem('mr_sarvam_api_key') || 'sk_mivman0h_IURNHraD270hfiXOHgagOsEn';
+            document.getElementById('sarvamApiKeyInput').value = savedKey;
+            loadTemplate('pooja');
+            document.getElementById('transcriptInput').addEventListener('input', updateWordCount);
+        });
+
+        function updateWordCount() {
+            const text = document.getElementById('transcriptInput').value.trim();
+            const words = text ? text.split(/\s+/).length : 0;
+            document.getElementById('wordCountLabel').textContent = `${words} words`;
+        }
+
+        function loadTemplate(key) {
+            if (TEMPLATES[key]) {
+                document.getElementById('transcriptInput').value = TEMPLATES[key];
+                updateWordCount();
+            }
+        }
+
+        function loadRandomTemplate() {
+            currentTemplateIndex = (currentTemplateIndex + 1) % TEMPLATE_KEYS.length;
+            loadTemplate(TEMPLATE_KEYS[currentTemplateIndex]);
+        }
+
+        function toggleKeyVisibility() {
+            const input = document.getElementById('sarvamApiKeyInput');
+            const icon = document.getElementById('eyeIcon');
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.className = 'fa-regular fa-eye-slash';
+            } else {
+                input.type = 'password';
+                icon.className = 'fa-regular fa-eye';
+            }
+        }
+
+        function saveApiKeyToLocal() {
+            const key = document.getElementById('sarvamApiKeyInput').value.trim();
+            if (key) {
+                localStorage.setItem('mr_sarvam_api_key', key);
+                const alertBox = document.getElementById('apiKeySavedAlert');
+                alertBox.classList.remove('hidden');
+                setTimeout(() => alertBox.classList.add('hidden'), 3500);
+            } else {
+                alert('Please enter an API key first.');
+            }
+        }
+
+        // Exact replication of C# SanitizeSummary logic in JavaScript
+        function sanitizeSummary(rawSummary) {
+            if (!rawSummary || !rawSummary.trim()) return '';
+
+            let text = rawSummary.trim();
+
+            // 1. Remove disclaimer blocks
+            text = text.replace(/(?:^|\n)\s*\*{0,2}Disclaimer:\*{0,2}[\s\S]*?(?=(?:#{1,4}|\*{2}\d+\.|\n\n\n|$))/gi, '');
+
+            // 2. Remove trailing note blocks
+            text = text.replace(/(?:^|\n)\s*(?:\*{1,3}|__)?\s*Note:\s*(?:\*{1,3}|__)?[\s\S]*$/gi, '');
+
+            // 3. Find first section header
+            const headerMatch = text.match(/(?:^|\n)\s*(?:#{1,4}\s*)?(?:\*{1,2})?(?:1[\.\)]\s*)?Executive Summary(?:\s*\/\s*Overview)?(?:\*{1,2})?/i);
+            if (headerMatch && headerMatch.index > 0) {
+                text = text.substring(headerMatch.index);
+            } else {
+                const altMatch = text.match(/(?:^|\n)\s*(?:#{1,4}\s*)?(?:\*{1,2})?1[\.\)]\s+/i);
+                if (altMatch && altMatch.index > 0) {
+                    text = text.substring(altMatch.index);
+                }
+            }
+
+            // 4. Process lines and normalize headers
+            const lines = text.split(/\r?\n/);
+            const cleanedLines = [];
+            let contentStarted = false;
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+
+                if (!contentStarted && !trimmed) continue;
+
+                if (!contentStarted) {
+                    if (/^(?:Of course|Certainly|Sure|Here is|Below is|Here's|As requested|Based on the provided)\b/i.test(trimmed) ||
+                        /^(?:---+|\*\*\*+|___+)$/.test(trimmed) ||
+                        /^(?:\*{1,2}|__)?(?:Minutes of Meeting|MOM|Meeting Minutes|Meeting Summary)(?:\s*\/\s*Summary)?(?:\*{1,2}|__)?$/i.test(trimmed) ||
+                        /^(?:\*{1,2}|__)?(?:Date|Time|Attendees|Meeting Type|Subject|Topic)\s*:\s*(?:\*{1,2}|__)?(?:\s*\[.*\]|\s*Not specified|\s*None|\s*N\/A|\s*)$/i.test(trimmed)) {
+                        continue;
+                    }
+                }
+
+                if (/^(?:\*{1,2}|__)?(?:Date|Time|Attendees|Meeting Type|Subject|Topic)\s*:\s*(?:\*{1,2}|__)?\s*(\[.*\]|Not specified|None|N\/A)\s*$/i.test(trimmed)) {
+                    continue;
+                }
+
+                if (/^(?:#{1,4}\s*)?(?:\*{1,2}|__)?(?:Minutes of Meeting|MOM|Meeting Minutes)(?:\s*\/\s*Summary)?(?:\*{1,2}|__)?$/i.test(trimmed)) {
+                    continue;
+                }
+
+                if (!contentStarted && /^(?:---+|\*\*\*+|___+)$/.test(trimmed)) {
+                    continue;
+                }
+
+                if (/^(?:#{1,4}\s*)?(?:\*{1,2})?(?:1[\.\)]\s*)?Executive Summary(?:\s*\/\s*Overview)?(?:\*{1,2})?:?$/i.test(trimmed)) {
+                    cleanedLines.push("### **1. Executive Summary / Overview**");
+                    contentStarted = true;
+                    continue;
+                }
+
+                if (/^(?:#{1,4}\s*)?(?:\*{1,2})?(?:2[\.\)]\s*)?Key Discussion Points?(?:\*{1,2})?:?$/i.test(trimmed)) {
+                    cleanedLines.push("### **2. Key Discussion Points**");
+                    contentStarted = true;
+                    continue;
+                }
+
+                if (/^(?:#{1,4}\s*)?(?:\*{1,2})?(?:3[\.\)]\s*)?(?:Decisions Made\s*&?\s*Action Items|Decisions and Action Items|Action Items\s*&?\s*Next Steps|Action Items|Decisions Made)(?:\*{1,2})?:?$/i.test(trimmed)) {
+                    cleanedLines.push("### **3. Decisions Made & Action Items**");
+                    contentStarted = true;
+                    continue;
+                }
+
+                contentStarted = true;
+                cleanedLines.push(line);
+            }
+
+            let result = cleanedLines.join('\n').trim();
+            result = result.replace(/\n\s*(?:---+|\*\*\*+|___+)\s*$/gi, '').trim();
+            return result;
+        }
+
+        async function generateCleanMom() {
+            const apiKey = document.getElementById('sarvamApiKeyInput').value.trim();
+            if (!apiKey) {
+                alert('Please enter or paste your Sarvam API key in Step 1 first.');
+                document.getElementById('sarvamApiKeyInput').focus();
+                return;
+            }
+
+            const transcript = document.getElementById('transcriptInput').value.trim();
+            if (!transcript) {
+                alert('Please enter or select a transcript.');
+                return;
+            }
+
+            saveApiKeyToLocal();
+
+            // UI states
+            document.getElementById('emptyState').classList.add('hidden');
+            document.getElementById('outputCard').classList.add('hidden');
+            document.getElementById('loadingState').classList.remove('hidden');
+            document.getElementById('btnGenerate').disabled = true;
+
+            const systemPrompt = `You are an expert AI meeting assistant. Your task is to generate a comprehensive, clear, and structured Minutes of Meeting (MOM) / Summary from the provided audio transcription.
+
+STRICT OUTPUT RULES:
+1. Output ONLY the clean markdown summary. Do NOT include ANY conversational greetings, intros, or preambles (e.g., 'Of course', 'Below is...', 'Here is a structured summary...', 'Certainly').
+2. Do NOT include ANY disclaimers, commentary about transcript quality/length/nature, or trailing notes (e.g., '**Disclaimer:**', '***Note:***', or explanations about lyrics/partial audio).
+3. Do NOT include bracketed metadata placeholders or empty headers (e.g., '[Date of Meeting]', '[Time of Meeting]', '[Not specified]', '[Name, Pooja - Speaker 1]').
+4. Start IMMEDIATELY with the first section header: '### **1. Executive Summary / Overview**'.
+
+MOM STRUCTURE TO FOLLOW:
+### **1. Executive Summary / Overview**
+[Concise paragraph summarizing the core purpose, discussion, and context of the meeting]
+
+### **2. Key Discussion Points**
+*   **[Point Title / Topic]:** [Clear explanation or details discussed]
+*   **[Point Title / Topic]:** [Clear explanation or details discussed]
+
+### **3. Decisions Made & Action Items**
+*   **[Action Item / Decision / Next Step]:** [Concise details or next steps discussed]`;
+
+            const userPrompt = `Generate a clean, structured Minutes of Meeting (MOM) for the following transcript without any preambles, disclaimers, or metadata placeholders:\n\n${transcript}`;
+
+            const payload = {
+                model: "sarvam-105b",
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: userPrompt }
+                ],
+                temperature: 0.3,
+                max_tokens: 2048
+            };
+
+            try {
+                const response = await fetch("https://api.sarvam.ai/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                        "api-subscription-key": apiKey,
+                        "Authorization": `Bearer ${apiKey}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    const errMsg = data.error?.message || `HTTP ${response.status}: Failed to call Sarvam AI.`;
+                    throw new Error(errMsg);
+                }
+
+                activeRawLlmResponse = data.choices?.[0]?.message?.content || '';
+                activeCleanSummary = sanitizeSummary(activeRawLlmResponse);
+
+                displayResults(activeCleanSummary, activeRawLlmResponse);
+            } catch (err) {
+                alert("Error calling Sarvam AI API:\n\n" + err.message);
+                document.getElementById('emptyState').classList.remove('hidden');
+            } finally {
+                document.getElementById('loadingState').classList.add('hidden');
+                document.getElementById('btnGenerate').disabled = false;
+            }
+        }
+
+        function displayResults(cleanMarkdown, rawMarkdown) {
+            document.getElementById('renderedHtmlContainer').innerHTML = marked.parse(cleanMarkdown);
+            document.getElementById('rawMarkdownTextarea').value = cleanMarkdown;
+            document.getElementById('diffRawLlm').value = rawMarkdown;
+            document.getElementById('diffClean').value = cleanMarkdown;
+            document.getElementById('timeGenerated').textContent = new Date().toLocaleTimeString();
+            document.getElementById('outputCard').classList.remove('hidden');
+            switchView('rendered');
+        }
+
+        function switchView(view) {
+            ['rendered', 'raw', 'diff'].forEach(v => {
+                document.getElementById(`btnView${capitalize(v)}`).className = 'sub-tab-btn text-xs px-3 py-1.5 rounded-md text-slate-600 hover:bg-slate-200 transition';
+                document.getElementById(`view${capitalize(v)}`).classList.add('hidden');
+            });
+
+            document.getElementById(`btnView${capitalize(view)}`).className = 'sub-tab-btn active text-xs px-3 py-1.5 rounded-md transition';
+            document.getElementById(`view${capitalize(view)}`).classList.remove('hidden');
+        }
+
+        function capitalize(s) {
+            return s.charAt(0).toUpperCase() + s.slice(1);
+        }
+
+        function copyOutput() {
+            if (activeCleanSummary) {
+                navigator.clipboard.writeText(activeCleanSummary);
+                alert('Clean MOM Markdown copied to clipboard!');
+            }
+        }
+    </script>
+</body>
+</html>

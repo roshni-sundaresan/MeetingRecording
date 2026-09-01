@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using MeetingRecorder.Application.DTOs;
 using MeetingRecorder.Application.Exceptions;
 using MeetingRecorder.Application.Interfaces;
@@ -340,14 +341,22 @@ public class SarvamApiService : ISarvamApiService
 
             var model = string.IsNullOrWhiteSpace(_options.SummaryModel) ? "sarvam-105b" : _options.SummaryModel;
 
-            var systemPrompt = "You are an expert AI meeting assistant. Your task is to generate a comprehensive, clear, and structured summary (Minutes of Meeting / MOM) from the provided audio transcription.\n\n" +
-                "Format the MOM/Summary with the following sections where applicable:\n" +
-                "1. Executive Summary / Overview\n" +
-                "2. Key Discussion Points\n" +
-                "3. Decisions Made & Action Items\n\n" +
-                "Ensure the summary is accurate, professional, and directly reflects the discussion.";
+            var systemPrompt = "You are an expert AI meeting assistant. Your task is to generate a comprehensive, clear, and structured Minutes of Meeting (MOM) / Summary from the provided audio transcription.\n\n" +
+                "STRICT OUTPUT RULES:\n" +
+                "1. Output ONLY the clean markdown summary. Do NOT include ANY conversational greetings, intros, or preambles (e.g., 'Of course', 'Below is...', 'Here is a structured summary...', 'Certainly').\n" +
+                "2. Do NOT include ANY disclaimers, commentary about transcript quality/length/nature, or trailing notes (e.g., '**Disclaimer:**', '***Note:***', or explanations about lyrics/partial audio).\n" +
+                "3. Do NOT include bracketed metadata placeholders or empty headers (e.g., '[Date of Meeting]', '[Time of Meeting]', '[Not specified]', '[Name, Pooja - Speaker 1]').\n" +
+                "4. Start IMMEDIATELY with the first section header: '### **1. Executive Summary / Overview**'.\n\n" +
+                "MOM STRUCTURE TO FOLLOW:\n" +
+                "### **1. Executive Summary / Overview**\n" +
+                "[Concise paragraph summarizing the core purpose, discussion, and context of the meeting]\n\n" +
+                "### **2. Key Discussion Points**\n" +
+                "*   **[Point Title / Topic]:** [Clear explanation or details discussed]\n" +
+                "*   **[Point Title / Topic]:** [Clear explanation or details discussed]\n\n" +
+                "### **3. Decisions Made & Action Items**\n" +
+                "*   **[Action Item / Decision / Next Step]:** [Concise details or next steps discussed]";
 
-            var userPrompt = $"Please generate a clear MOM / Summary for the following meeting transcript:\n\n{cleanedText}";
+            var userPrompt = $"Generate a clean, structured Minutes of Meeting (MOM) for the following transcript without any preambles, disclaimers, or metadata placeholders:\n\n{cleanedText}";
 
             var payload = new
             {
@@ -379,7 +388,11 @@ public class SarvamApiService : ISarvamApiService
             var extractedSummary = ExtractChatCompletionContent(responseJson);
             if (!string.IsNullOrWhiteSpace(extractedSummary))
             {
-                return extractedSummary;
+                var sanitized = SanitizeSummary(extractedSummary);
+                if (!string.IsNullOrWhiteSpace(sanitized))
+                {
+                    return sanitized;
+                }
             }
 
             return GenerateFallbackSummary(cleanedText);
@@ -687,6 +700,113 @@ public class SarvamApiService : ISarvamApiService
         }
     }
 
+    public static string SanitizeSummary(string? rawSummary)
+    {
+        if (string.IsNullOrWhiteSpace(rawSummary))
+            return string.Empty;
+
+        var text = rawSummary.Trim();
+
+        // 1. Remove disclaimer blocks (e.g., "**Disclaimer:** The provided transcript appears to be...")
+        text = Regex.Replace(text, @"(?is)\*{0,2}Disclaimer:\*{0,2}[\s\S]*?(?=(#{1,4}|\*{2}\d+\.|\n\n\n|\Z))", "", RegexOptions.IgnoreCase);
+
+        // 2. Remove trailing note blocks (e.g., "***Note:*** This summary is based on a partial transcript...")
+        text = Regex.Replace(text, @"(?is)(\*{1,3}|__)?\s*Note:\s*(\*{1,3}|__)?[\s\S]*$", "", RegexOptions.IgnoreCase);
+
+        // 3. Find starting position of first section header (e.g., "1. Executive Summary" or "Executive Summary")
+        var firstSectionMatch = Regex.Match(text, @"(?m)^(?:#{1,4}\s*)?(?:\*{1,2})?(?:1[\.\)]\s*)?Executive Summary(?:\s*/\s*Overview)?(?:\*{1,2})?", RegexOptions.IgnoreCase);
+        if (firstSectionMatch.Success && firstSectionMatch.Index > 0)
+        {
+            text = text.Substring(firstSectionMatch.Index);
+        }
+        else
+        {
+            var alternateHeaderMatch = Regex.Match(text, @"(?m)^(?:#{1,4}\s*)?(?:\*{1,2})?1[\.\)]\s+", RegexOptions.IgnoreCase);
+            if (alternateHeaderMatch.Success && alternateHeaderMatch.Index > 0)
+            {
+                text = text.Substring(alternateHeaderMatch.Index);
+            }
+        }
+
+        // 4. Process line-by-line to remove unwanted headers/metadata and normalize section headers
+        var rawLines = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+        var cleanedLines = new List<string>();
+        bool contentStarted = false;
+
+        foreach (var line in rawLines)
+        {
+            var trimmedLine = line.Trim();
+
+            // Skip leading blank lines
+            if (!contentStarted && string.IsNullOrWhiteSpace(trimmedLine))
+                continue;
+
+            // Skip conversational filler if content hasn't started
+            if (!contentStarted)
+            {
+                if (Regex.IsMatch(trimmedLine, @"^(?:Of course|Certainly|Sure|Here is|Below is|Here's|As requested|Based on the provided)\b", RegexOptions.IgnoreCase) ||
+                    Regex.IsMatch(trimmedLine, @"^(?:---+|\*\*\*+|___+)$") ||
+                    Regex.IsMatch(trimmedLine, @"^(?:\*{1,2}|__)?(?:Minutes of Meeting|MOM|Meeting Minutes|Meeting Summary)(?:\s*/\s*Summary)?(?:\*{1,2}|__)?$", RegexOptions.IgnoreCase) ||
+                    Regex.IsMatch(trimmedLine, @"^(?:\*{1,2}|__)?(?:Date|Time|Attendees|Meeting Type|Subject|Topic)\s*:\s*(?:\*{1,2}|__)?(?:\s*\[.*\]|\s*Not specified|\s*None|\s*N/A|\s*)$", RegexOptions.IgnoreCase))
+                {
+                    continue;
+                }
+            }
+
+            // Remove placeholder metadata lines anywhere
+            if (Regex.IsMatch(trimmedLine, @"^(?:\*{1,2}|__)?(?:Date|Time|Attendees|Meeting Type|Subject|Topic)\s*:\s*(?:\*{1,2}|__)?\s*(\[.*\]|Not specified|None|N/A)\s*$", RegexOptions.IgnoreCase))
+            {
+                continue;
+            }
+
+            // Remove standalone top title banners like "### **Minutes of Meeting / MOM**" or "**Meeting Minutes / Summary**"
+            if (Regex.IsMatch(trimmedLine, @"^(?:#{1,4}\s*)?(?:\*{1,2}|__)?(?:Minutes of Meeting|MOM|Meeting Minutes)(?:\s*/\s*Summary)?(?:\*{1,2}|__)?$", RegexOptions.IgnoreCase))
+            {
+                continue;
+            }
+
+            // Remove horizontal rules before content
+            if (!contentStarted && Regex.IsMatch(trimmedLine, @"^(?:---+|\*\*\*+|___+)$"))
+            {
+                continue;
+            }
+
+            // Normalize Section 1 Header
+            if (Regex.IsMatch(trimmedLine, @"^(?:#{1,4}\s*)?(?:\*{1,2})?(?:1[\.\)]\s*)?Executive Summary(?:\s*/\s*Overview)?(?:\*{1,2})?:?$", RegexOptions.IgnoreCase))
+            {
+                cleanedLines.Add("### **1. Executive Summary / Overview**");
+                contentStarted = true;
+                continue;
+            }
+
+            // Normalize Section 2 Header
+            if (Regex.IsMatch(trimmedLine, @"^(?:#{1,4}\s*)?(?:\*{1,2})?(?:2[\.\)]\s*)?Key Discussion Points?(?:\*{1,2})?:?$", RegexOptions.IgnoreCase))
+            {
+                cleanedLines.Add("### **2. Key Discussion Points**");
+                contentStarted = true;
+                continue;
+            }
+
+            // Normalize Section 3 Header
+            if (Regex.IsMatch(trimmedLine, @"^(?:#{1,4}\s*)?(?:\*{1,2})?(?:3[\.\)]\s*)?(?:Decisions Made\s*&?\s*Action Items|Decisions and Action Items|Action Items\s*&?\s*Next Steps|Action Items|Decisions Made)(?:\*{1,2})?:?$", RegexOptions.IgnoreCase))
+            {
+                cleanedLines.Add("### **3. Decisions Made & Action Items**");
+                contentStarted = true;
+                continue;
+            }
+
+            contentStarted = true;
+            cleanedLines.Add(line);
+        }
+
+        var result = string.Join("\n", cleanedLines).Trim();
+
+        // Remove trailing empty horizontal lines / dividers
+        result = Regex.Replace(result, @"\n\s*(?:---+|\*\*\*+|___+)\s*$", "", RegexOptions.IgnoreCase).Trim();
+
+        return result;
+    }
+
     private static string GenerateFallbackSummary(string transcriptText)
     {
         if (string.IsNullOrWhiteSpace(transcriptText))
@@ -705,20 +825,18 @@ public class SarvamApiService : ISarvamApiService
             .ToList();
 
         var sb = new StringBuilder();
-        sb.AppendLine("### Minutes of Meeting (MOM)");
-        sb.AppendLine();
-        sb.AppendLine("**1. Executive Summary:**");
+        sb.AppendLine("### **1. Executive Summary / Overview**");
         var overview = string.Join(" ", cleanSentences.Take(3));
         sb.AppendLine(overview.Length > 300 ? overview.Substring(0, 297) + "..." : overview);
         sb.AppendLine();
-        sb.AppendLine("**2. Key Discussion Points:**");
+        sb.AppendLine("### **2. Key Discussion Points**");
         foreach (var item in cleanSentences.Take(5))
         {
-            sb.AppendLine($"- {item}");
+            sb.AppendLine($"*   **Point:** {item}");
         }
         sb.AppendLine();
-        sb.AppendLine("**3. Action Items & Next Steps:**");
-        sb.AppendLine("- Review and follow up on key items and milestones from the discussion.");
+        sb.AppendLine("### **3. Decisions Made & Action Items**");
+        sb.AppendLine("*   **Next Steps:** Follow up on key items and milestones from the discussion.");
 
         return sb.ToString().Trim();
     }
