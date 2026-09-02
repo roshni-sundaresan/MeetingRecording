@@ -85,11 +85,20 @@ try
         });
     });
 
-    // ---------- CORS ----------
-    var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-        ?? new[] { "http://localhost:3000" };
-    builder.Services.AddCors(options => options.AddPolicy("AllowApp", policy =>
-        policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod()));
+    // ---------- CORS (Allow all origins for public accessibility) ----------
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy("AllowApp", policy =>
+            policy.SetIsOriginAllowed(_ => true)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod()
+                  .AllowCredentials());
+        options.AddDefaultPolicy(policy =>
+            policy.SetIsOriginAllowed(_ => true)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod()
+                  .AllowCredentials());
+    });
 
     // ---------- Rate limiting (per-IP fixed window) ----------
     builder.Services.AddRateLimiter(options =>
@@ -208,8 +217,9 @@ try
         ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
     });
     app.UseMiddleware<GlobalExceptionMiddleware>();
-    app.UseRateLimiter();
     app.UseCors("AllowApp");
+    app.UseCors();
+    app.UseRateLimiter();
 
     if (builder.Configuration.GetValue<bool>("Https:EnableRedirection"))
     {
