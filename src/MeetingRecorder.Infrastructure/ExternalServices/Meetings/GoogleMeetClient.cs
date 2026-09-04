@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using MeetingRecorder.Application.Common;
 using MeetingRecorder.Application.DTOs;
 using MeetingRecorder.Application.Interfaces;
 using MeetingRecorder.Domain.Enums;
@@ -61,19 +62,22 @@ public class GoogleMeetClient : IMeetingProviderClient
 
         var attendeesList = request.Attendees?.Select(email => new { email }).ToArray() ?? Array.Empty<object>();
 
+        var parsedStart = MeetingTimeHelper.Parse(request.StartTime, request.TimeZone);
+        var parsedEnd = MeetingTimeHelper.Parse(request.EndTime, request.TimeZone);
+
         var body = new
         {
             summary = request.Title,
             description = request.Description,
             start = new
             {
-                dateTime = request.StartTime.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                timeZone = request.TimeZone ?? "UTC"
+                dateTime = parsedStart.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                timeZone = parsedStart.TimeZoneId
             },
             end = new
             {
-                dateTime = request.EndTime.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                timeZone = request.TimeZone ?? "UTC"
+                dateTime = parsedEnd.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                timeZone = parsedEnd.TimeZoneId
             },
             attendees = attendeesList,
             conferenceData = new

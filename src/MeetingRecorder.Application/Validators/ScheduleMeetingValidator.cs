@@ -1,4 +1,5 @@
 using FluentValidation;
+using MeetingRecorder.Application.Common;
 using MeetingRecorder.Application.DTOs;
 
 namespace MeetingRecorder.Application.Validators;
@@ -15,11 +16,25 @@ public class ScheduleMeetingValidator : AbstractValidator<ScheduleMeetingRequest
             .IsInEnum().WithMessage("'provider' must be a valid meeting provider (google_meet or teams).");
 
         RuleFor(x => x.StartTime)
-            .NotEmpty().WithMessage("'start_time' is required.");
+            .NotEmpty().WithMessage("'start_time' is required.")
+            .Must(BeValidTime).WithMessage("'start_time' is not a valid date-time format (expected format like 'YYYY-MM-DDTHH:mm:ss').");
 
         RuleFor(x => x.EndTime)
             .NotEmpty().WithMessage("'end_time' is required.")
-            .Must((req, endTime) => endTime > req.StartTime)
+            .Must(BeValidTime).WithMessage("'end_time' is not a valid date-time format (expected format like 'YYYY-MM-DDTHH:mm:ss').")
+            .Must((req, endTime) =>
+            {
+                try
+                {
+                    var s = MeetingTimeHelper.Parse(req.StartTime, req.TimeZone);
+                    var e = MeetingTimeHelper.Parse(endTime, req.TimeZone);
+                    return e.UtcDateTime > s.UtcDateTime;
+                }
+                catch
+                {
+                    return false;
+                }
+            })
             .WithMessage("'end_time' must be after 'start_time'.");
 
         RuleFor(x => x.Description)
@@ -34,5 +49,19 @@ public class ScheduleMeetingValidator : AbstractValidator<ScheduleMeetingRequest
 
         RuleForEach(x => x.Attendees)
             .EmailAddress().WithMessage(attendee => $"'{attendee}' is not a valid email address.");
+    }
+
+    private static bool BeValidTime(string timeStr)
+    {
+        if (string.IsNullOrWhiteSpace(timeStr)) return false;
+        try
+        {
+            MeetingTimeHelper.Parse(timeStr, "UTC");
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }

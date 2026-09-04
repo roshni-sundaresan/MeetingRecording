@@ -15,8 +15,8 @@ public class ScheduleMeetingSchemaFilter : ISchemaFilter
             {
                 ["title"] = new OpenApiString("Sprint Planning & Demo"),
                 ["provider"] = new OpenApiString("google_meet"),
-                ["start_time"] = new OpenApiString("2026-09-04T10:00:00Z"),
-                ["end_time"] = new OpenApiString("2026-09-04T11:00:00Z"),
+                ["start_time"] = new OpenApiString("2026-09-04T14:30:00"),
+                ["end_time"] = new OpenApiString("2026-09-04T16:30:00"),
                 ["description"] = new OpenApiString("Quarterly sprint planning and review."),
                 ["attendees"] = new OpenApiArray
                 {

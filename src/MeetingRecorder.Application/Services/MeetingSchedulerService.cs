@@ -1,4 +1,5 @@
 using System.Text.Json;
+using MeetingRecorder.Application.Common;
 using MeetingRecorder.Application.DTOs;
 using MeetingRecorder.Application.DTOs.Common;
 using MeetingRecorder.Application.Exceptions;
@@ -34,6 +35,9 @@ public class MeetingSchedulerService : IMeetingSchedulerService
         _logger.LogInformation("Scheduling meeting '{Title}' with provider '{Provider}' for user {UserId}",
             request.Title, request.Provider, userId);
 
+        var parsedStart = MeetingTimeHelper.Parse(request.StartTime, request.TimeZone);
+        var parsedEnd = MeetingTimeHelper.Parse(request.EndTime, request.TimeZone);
+
         var details = await client.CreateMeetingAsync(request, ct);
 
         var meeting = new ScheduledMeeting
@@ -43,9 +47,9 @@ public class MeetingSchedulerService : IMeetingSchedulerService
             Title = request.Title.Trim(),
             Description = request.Description?.Trim(),
             Provider = request.Provider,
-            StartTime = request.StartTime.ToUniversalTime(),
-            EndTime = request.EndTime.ToUniversalTime(),
-            TimeZone = string.IsNullOrWhiteSpace(request.TimeZone) ? "UTC" : request.TimeZone.Trim(),
+            StartTime = parsedStart.UtcDateTime,
+            EndTime = parsedEnd.UtcDateTime,
+            TimeZone = parsedStart.TimeZoneId,
             JoinUrl = details.JoinUrl,
             MeetingCode = details.MeetingCode,
             Passcode = details.Passcode,
@@ -169,6 +173,10 @@ public class MeetingSchedulerService : IMeetingSchedulerService
             }
         }
 
+        var tz = MeetingTimeHelper.ResolveTimeZone(meeting.TimeZone);
+        var localStart = TimeZoneInfo.ConvertTimeFromUtc(meeting.StartTime, tz).ToString("yyyy-MM-ddTHH:mm:ss");
+        var localEnd = TimeZoneInfo.ConvertTimeFromUtc(meeting.EndTime, tz).ToString("yyyy-MM-ddTHH:mm:ss");
+
         return new ScheduledMeetingResponse(
             Id: meeting.Id,
             UserId: meeting.UserId,
@@ -184,6 +192,8 @@ public class MeetingSchedulerService : IMeetingSchedulerService
             ExternalMeetingId: meeting.ExternalMeetingId,
             Attendees: attendees,
             Status: meeting.Status,
-            CreatedAt: meeting.CreatedAt);
+            CreatedAt: meeting.CreatedAt,
+            LocalStartTime: localStart,
+            LocalEndTime: localEnd);
     }
 }

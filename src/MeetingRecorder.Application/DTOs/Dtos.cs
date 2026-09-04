@@ -164,20 +164,20 @@ public record RetryChunkRequest(Guid BatchId, int ChunkNumber);
 /// </summary>
 /// <param name="Title">Subject or title of the meeting (e.g. "Sprint Planning &amp; Demo"). Max 200 characters.</param>
 /// <param name="Provider">Target meeting platform: "google_meet" or "teams".</param>
-/// <param name="StartTime">Meeting start timestamp in ISO 8601 UTC format (e.g. "2026-09-04T10:00:00Z").</param>
-/// <param name="EndTime">Meeting end timestamp in ISO 8601 UTC format (e.g. "2026-09-04T11:00:00Z"). Must be after StartTime.</param>
+/// <param name="StartTime">Meeting start timestamp (e.g. "2026-09-04T14:30:00" or ISO 8601 string).</param>
+/// <param name="EndTime">Meeting end timestamp (e.g. "2026-09-04T16:30:00" or ISO 8601 string). Must be after StartTime.</param>
 /// <param name="Description">Optional meeting agenda, discussion topics, or description notes.</param>
 /// <param name="Attendees">Optional list of participant email addresses to invite.</param>
-/// <param name="TimeZone">Optional IANA time zone identifier (e.g. "Asia/Kolkata", "UTC"). Default: "UTC".</param>
+/// <param name="TimeZone">Optional IANA/Windows time zone identifier (e.g. "Asia/Kolkata", "UTC"). Default: "Asia/Kolkata".</param>
 /// <param name="ProviderAccessToken">Optional OAuth 2.0 access token (from Google Sign-In or Microsoft MSAL) if available in front-end client session.</param>
 public record ScheduleMeetingRequest(
     string Title,
     MeetingProvider Provider,
-    DateTime StartTime,
-    DateTime EndTime,
+    string StartTime,
+    string EndTime,
     string? Description = null,
     IReadOnlyList<string>? Attendees = null,
-    string? TimeZone = "UTC",
+    string? TimeZone = "Asia/Kolkata",
     string? ProviderAccessToken = null);
 
 public record ScheduledMeetingResponse(
@@ -195,4 +195,6 @@ public record ScheduledMeetingResponse(
     string? ExternalMeetingId,
     IReadOnlyList<string> Attendees,
     MeetingStatus Status,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    string? LocalStartTime = null,
+    string? LocalEndTime = null);

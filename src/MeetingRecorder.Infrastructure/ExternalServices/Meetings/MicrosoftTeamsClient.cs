@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Web;
+using MeetingRecorder.Application.Common;
 using MeetingRecorder.Application.DTOs;
 using MeetingRecorder.Application.Interfaces;
 using MeetingRecorder.Domain.Enums;
@@ -60,10 +61,13 @@ public class MicrosoftTeamsClient : IMeetingProviderClient
             "https://graph.microsoft.com/v1.0/me/onlineMeetings");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
+        var parsedStart = MeetingTimeHelper.Parse(request.StartTime, request.TimeZone);
+        var parsedEnd = MeetingTimeHelper.Parse(request.EndTime, request.TimeZone);
+
         var body = new
         {
-            startDateTime = request.StartTime.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"),
-            endDateTime = request.EndTime.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"),
+            startDateTime = parsedStart.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+            endDateTime = parsedEnd.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ"),
             subject = request.Title
         };
 

@@ -29,13 +29,13 @@ public class MeetingsController : ApiControllerBase
     /// **Required Parameters from Front-End:**
     /// - **`title`** (string): Subject/topic of the meeting (e.g., "Sprint Planning &amp; Demo"). Max 200 chars.
     /// - **`provider`** (string): Target platform. Allowed values: `"google_meet"` or `"teams"`.
-    /// - **`start_time`** (ISO 8601 UTC string): Meeting start time (e.g., "2026-09-04T10:00:00Z").
-    /// - **`end_time`** (ISO 8601 UTC string): Meeting end time (e.g., "2026-09-04T11:00:00Z"). Must be after `start_time`.
+    /// - **`start_time`** (string): Meeting start time in local wall-clock format (e.g., "2026-09-04T14:30:00") or ISO 8601.
+    /// - **`end_time`** (string): Meeting end time in local wall-clock format (e.g., "2026-09-04T16:30:00") or ISO 8601. Must be after `start_time`.
     /// 
     /// **Optional Parameters from Front-End:**
     /// - **`description`** (string): Meeting agenda or description notes.
     /// - **`attendees`** (string array): Participant email addresses to invite (e.g., `["alice@example.com", "bob@example.com"]`).
-    /// - **`time_zone`** (string): Time zone identifier (e.g., "Asia/Kolkata", "UTC", "America/New_York"). Default: "UTC".
+    /// - **`time_zone`** (string): Time zone identifier (e.g., "Asia/Kolkata", "UTC", "America/New_York"). Default: "Asia/Kolkata".
     /// - **`provider_access_token`** (string): Delegated OAuth 2.0 access token (from Google Sign-In or Microsoft MSAL) if available in front-end client session.
     /// </remarks>
     /// <param name="request">Meeting schedule parameters.</param>
