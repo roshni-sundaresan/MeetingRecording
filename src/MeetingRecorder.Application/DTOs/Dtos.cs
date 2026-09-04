@@ -42,7 +42,19 @@ public record UserResponse(Guid Id, string Email, string Name, string Mobile, st
 
 public record CreateUserRequest(string Email, string Name, string Mobile, string Password, string? ProfilePhotoUrl);
 
-public record UpdateUserRequest(string Name, string Mobile, string? ProfilePhotoUrl);
+public record UpdateUserRequest(
+    string? Email = null,
+    string? Name = null,
+    string? Mobile = null,
+    string? Password = null,
+    string? ProfilePhotoUrl = null);
+
+public record UpdateProfileRequest(
+    string? Email = null,
+    string? Name = null,
+    string? Mobile = null,
+    string? Password = null,
+    string? ProfilePhotoUrl = null);
 
 // ---------- User API Key Settings (Option 1: Custom Key vs Option 2: Buy/System Key) ----------
 public record SetApiKeyRequest(string ApiKey, bool Validate = false);

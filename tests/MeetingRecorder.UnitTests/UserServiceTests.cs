@@ -74,10 +74,54 @@ public class UserServiceTests
         _repo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(alice);
 
-        var result = await CreateSut().UpdateUserAsync(alice.Id, new UpdateUserRequest("Alice Updated", "9999999999", null));
+        var result = await CreateSut().UpdateUserAsync(alice.Id, new UpdateUserRequest(Name: "Alice Updated", Mobile: "9999999999"));
 
         result.Name.Should().Be("Alice Updated");
         result.Mobile.Should().Be("9999999999");
+        result.Email.Should().Be("alice@test.com");
+    }
+
+    [Fact]
+    public async Task UpdateUser_UpdatesOnlyProvidedFields_AndKeepsOthersUnchanged()
+    {
+        var alice = NewUser("Alice", "alice@test.com", "1111111111");
+        alice.ProfilePhotoUrl = "http://example.com/old.jpg";
+        _repo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(alice);
+
+        var result = await CreateSut().UpdateUserAsync(alice.Id, new UpdateUserRequest(Name: "New Name Only"));
+
+        result.Name.Should().Be("New Name Only");
+        result.Email.Should().Be("alice@test.com");
+        result.Mobile.Should().Be("1111111111");
+        result.ProfilePhotoUrl.Should().Be("http://example.com/old.jpg");
+    }
+
+    [Fact]
+    public async Task UpdateUser_WithPassword_HashesNewPassword()
+    {
+        var alice = NewUser("Alice", "alice@test.com", "1111111111");
+        _repo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(alice);
+        _hasher.Setup(h => h.Hash("NewSecret123!")).Returns("hashed_secret");
+
+        await CreateSut().UpdateUserAsync(alice.Id, new UpdateUserRequest(Password: "NewSecret123!"));
+
+        alice.PasswordHash.Should().Be("hashed_secret");
+    }
+
+    [Fact]
+    public async Task UpdateUser_WithDuplicateEmail_ThrowsConflict()
+    {
+        var alice = NewUser("Alice", "alice@test.com", "1111111111");
+        _repo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(alice);
+        _repo.Setup(r => r.AnyAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var act = () => CreateSut().UpdateUserAsync(alice.Id, new UpdateUserRequest(Email: "bob@test.com"));
+
+        await act.Should().ThrowAsync<ConflictException>().WithMessage("*already exists*");
     }
 
     [Fact]

@@ -51,8 +51,19 @@ public class UsersController : ApiControllerBase
         return Envelope(await _userService.CreateUserAsync(request, ct), "User created.", StatusCodes.Status201Created);
     }
 
-    /// <summary>Update profile. Self or admin.</summary>
+    /// <summary>Update profile of current authenticated user.</summary>
+    [HttpPut("profile")]
+    [HttpPatch("profile")]
+    public async Task<ActionResult<ApiResponse<UserResponse>>> UpdateProfile([FromBody] UpdateUserRequest request, CancellationToken ct)
+    {
+        var userId = CurrentUser.UserId ?? throw new AppException("User is not authenticated.", 401, "UNAUTHORIZED");
+        await ValidateAsync(request, ct);
+        return Envelope(await _userService.UpdateUserAsync(userId, request, ct), "Profile updated successfully.");
+    }
+
+    /// <summary>Update profile by user ID. Self or admin.</summary>
     [HttpPut("{id:guid}")]
+    [HttpPatch("{id:guid}")]
     public async Task<ActionResult<ApiResponse<UserResponse>>> Update(Guid id, [FromBody] UpdateUserRequest request, CancellationToken ct)
     {
         AccessPolicies.EnsureCanActOnUser(CurrentUser, id);

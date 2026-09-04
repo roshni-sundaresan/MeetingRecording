@@ -103,9 +103,37 @@ public class UserService : IUserService
         var user = await _uow.Repository<User>().FirstOrDefaultAsync(u => u.Id == id && !u.IsDeleted, ct)
             ?? throw new NotFoundException(nameof(User), id);
 
-        user.Name = request.Name.Trim();
-        user.Mobile = request.Mobile.Trim();
-        user.ProfilePhotoUrl = request.ProfilePhotoUrl;
+        if (!string.IsNullOrWhiteSpace(request.Email))
+        {
+            var email = request.Email.ToLowerInvariant().Trim();
+            if (email != user.Email)
+            {
+                if (await _uow.Repository<User>().AnyAsync(u => u.Email == email && u.Id != id && !u.IsDeleted, ct))
+                    throw new ConflictException($"A user with email '{email}' already exists.");
+                user.Email = email;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Name))
+        {
+            user.Name = request.Name.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Mobile))
+        {
+            user.Mobile = request.Mobile.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Password))
+        {
+            user.PasswordHash = _passwordHasher.Hash(request.Password);
+        }
+
+        if (request.ProfilePhotoUrl != null)
+        {
+            user.ProfilePhotoUrl = request.ProfilePhotoUrl;
+        }
+
         user.UpdatedDate = DateTime.UtcNow;
 
         _uow.Repository<User>().Update(user);

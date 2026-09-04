@@ -92,4 +92,24 @@ public class ValidatorTests
         result.IsValid.Should().BeFalse();
         result.Errors.Should().Contain(e => e.PropertyName == nameof(SetApiKeyRequest.ApiKey));
     }
+
+    [Fact]
+    public async Task UpdateUserValidator_EmptyRequest_Passes()
+    {
+        var validator = new UpdateUserValidator();
+        var result = await validator.ValidateAsync(new UpdateUserRequest());
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task UpdateUserValidator_InvalidEmailOrPassword_Fails()
+    {
+        var validator = new UpdateUserValidator();
+        var result = await validator.ValidateAsync(new UpdateUserRequest(Email: "invalid-email", Password: "short"));
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(UpdateUserRequest.Email));
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(UpdateUserRequest.Password));
+    }
 }
