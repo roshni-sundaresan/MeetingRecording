@@ -19,6 +19,8 @@ public static class DependencyInjection
 
         services.AddDbContext<AppDbContext>(options =>
         {
+            options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
+
             if (provider.Equals("Sqlite", StringComparison.OrdinalIgnoreCase)
                 || connectionString.Contains(".db", StringComparison.OrdinalIgnoreCase)
                 || connectionString.Contains("Data Source=", StringComparison.OrdinalIgnoreCase))

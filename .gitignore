@@ -29,4 +29,9 @@ coverage/
 TestResults/
 *.dmp
 
+# Databases
+*.db
+*.db-shm
+*.db-wal
+
 .hermes/
