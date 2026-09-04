@@ -12,6 +12,7 @@ public static class QueryGuard
 {
     public static readonly string[] AllowedRecordingSort = { "title", "duration", "createdat", "updatedat" };
     public static readonly string[] AllowedUserSort = { "name", "email", "createdat" };
+    public static readonly string[] AllowedMeetingSort = { "title", "starttime", "endtime", "createdat", "provider" };
 
     public static void Validate(QueryParameters query, string[]? allowedSortBy = null)
     {

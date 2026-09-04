@@ -38,6 +38,8 @@ public static class DependencyInjection
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.Configure<StorageOptions>(configuration.GetSection(StorageOptions.SectionName));
         services.Configure<ExternalServices.SarvamOptions>(configuration.GetSection(ExternalServices.SarvamOptions.SectionName));
+        services.Configure<ExternalServices.Meetings.MeetingIntegrationOptions>(
+            configuration.GetSection(ExternalServices.Meetings.MeetingIntegrationOptions.SectionName));
 
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
         services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -49,6 +51,15 @@ public static class DependencyInjection
         services.AddHttpClient<ISarvamApiService, ExternalServices.SarvamApiService>(client =>
         {
             client.Timeout = TimeSpan.FromMinutes(4);
+        });
+
+        services.AddHttpClient<IMeetingProviderClient, ExternalServices.Meetings.GoogleMeetClient>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+        services.AddHttpClient<IMeetingProviderClient, ExternalServices.Meetings.MicrosoftTeamsClient>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
         });
 
         return services;

@@ -25,12 +25,14 @@ public static class DependencyInjection
         services.AddScoped<IValidator<DTOs.StartUploadRequest>, StartUploadValidator>();
         services.AddScoped<IValidator<DTOs.UploadChunkRequest>, UploadChunkValidator>();
         services.AddScoped<IValidator<Guid>, CompleteUploadValidator>();
+        services.AddScoped<IValidator<DTOs.ScheduleMeetingRequest>, ScheduleMeetingValidator>();
 
         // Services
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IRecordingService, RecordingService>();
         services.AddScoped<IBatchUploadService, BatchUploadService>();
+        services.AddScoped<IMeetingSchedulerService, MeetingSchedulerService>();
 
         return services;
     }

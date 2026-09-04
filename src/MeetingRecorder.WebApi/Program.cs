@@ -83,6 +83,14 @@ try
                 Array.Empty<string>()
             }
         });
+
+        var xmlWebApi = Path.Combine(AppContext.BaseDirectory, "MeetingRecorder.WebApi.xml");
+        if (File.Exists(xmlWebApi)) options.IncludeXmlComments(xmlWebApi);
+
+        var xmlApp = Path.Combine(AppContext.BaseDirectory, "MeetingRecorder.Application.xml");
+        if (File.Exists(xmlApp)) options.IncludeXmlComments(xmlApp);
+
+        options.SchemaFilter<MeetingRecorder.WebApi.Common.ScheduleMeetingSchemaFilter>();
     });
 
     // ---------- CORS ----------
@@ -190,7 +198,14 @@ try
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-        db.Database.Migrate();
+        if (db.Database.IsSqlite())
+        {
+            db.Database.EnsureCreated();
+        }
+        else
+        {
+            db.Database.Migrate();
+        }
         if (builder.Configuration.GetValue<bool>("Database:SeedOnStartup"))
         {
             await DbSeeder.SeedAsync(db, logger, CancellationToken.None);
