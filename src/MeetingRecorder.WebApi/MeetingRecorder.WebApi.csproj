@@ -26,4 +26,10 @@
     <ProjectReference Include="..\MeetingRecorder.Infrastructure\MeetingRecorder.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\..\.env" Link=".env" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('..\..\.env')" />
+    <None Include="..\..\private_key.pem" Link="private_key.pem" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('..\..\private_key.pem')" />
+    <None Include="..\..\public_key.pem" Link="public_key.pem" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('..\..\public_key.pem')" />
+  </ItemGroup>
+
 </Project>

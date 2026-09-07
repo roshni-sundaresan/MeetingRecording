@@ -197,19 +197,30 @@ public class CryptoService : ICryptoService, IDisposable
         var candidatePath = !string.IsNullOrWhiteSpace(filePath) ? filePath : defaultFileName;
         if (!string.IsNullOrWhiteSpace(candidatePath))
         {
-            // 1. Direct path
-            if (File.Exists(candidatePath))
-                return File.ReadAllText(candidatePath);
+            var searchPaths = new[]
+            {
+                candidatePath,
+                Path.Combine(AppContext.BaseDirectory, candidatePath),
+                Path.Combine(Directory.GetCurrentDirectory(), candidatePath),
+                Path.Combine(Directory.GetCurrentDirectory(), "..", candidatePath),
+                Path.Combine(Directory.GetCurrentDirectory(), "..", "..", candidatePath),
+                Path.Combine(AppContext.BaseDirectory, "..", candidatePath),
+                Path.Combine(AppContext.BaseDirectory, "..", "..", candidatePath),
+                Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", candidatePath)
+            };
 
-            // 2. Base directory
-            var baseDirPath = Path.Combine(AppContext.BaseDirectory, candidatePath);
-            if (File.Exists(baseDirPath))
-                return File.ReadAllText(baseDirPath);
-
-            // 3. Current working directory
-            var cwdPath = Path.Combine(Directory.GetCurrentDirectory(), candidatePath);
-            if (File.Exists(cwdPath))
-                return File.ReadAllText(cwdPath);
+            foreach (var p in searchPaths)
+            {
+                try
+                {
+                    if (File.Exists(p))
+                        return File.ReadAllText(p);
+                }
+                catch
+                {
+                    // Ignore path probing errors
+                }
+            }
         }
 
         return null;

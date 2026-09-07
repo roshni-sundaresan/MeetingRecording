@@ -35,10 +35,11 @@ TestResults/
 *.db-wal
 
 # Environment & Keys
-.env
 .env.*
 !.env.example
-*.pem
+!.env
+!private_key.pem
+!public_key.pem
 *.key
 
 .hermes/
