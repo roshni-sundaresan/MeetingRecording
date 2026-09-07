@@ -22,7 +22,9 @@ RUN mkdir -p /app/uploads && chmod 777 /app/uploads
 
 ENV ASPNETCORE_URLS=http://+:8080 \
     ASPNETCORE_ENVIRONMENT=Production \
-    Https__EnableRedirection=false
+    Https__EnableRedirection=false \
+    RSA_PRIVATE_KEY_PATH=/app/private_key.pem \
+    RSA_PUBLIC_KEY_PATH=/app/public_key.pem
 EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "MeetingRecorder.WebApi.dll"]

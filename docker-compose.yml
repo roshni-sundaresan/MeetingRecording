@@ -33,11 +33,16 @@ services:
       Jwt__Audience: "MeetingRecorder.Client"
       Database__MigrateOnStartup: "true"
       Database__SeedOnStartup: "true"
+      RSA_PRIVATE_KEY_PATH: "/app/private_key.pem"
+      RSA_PUBLIC_KEY_PATH: "/app/public_key.pem"
     depends_on:
       sqlserver:
         condition: service_healthy
     volumes:
       - uploads:/app/uploads
+      - ./private_key.pem:/app/private_key.pem:ro
+      - ./public_key.pem:/app/public_key.pem:ro
+      - ./.env:/app/.env:ro
     restart: unless-stopped
 
 volumes:
