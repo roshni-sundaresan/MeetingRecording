@@ -7,6 +7,7 @@ using MeetingRecorder.Application.Services;
 using MeetingRecorder.Infrastructure;
 using MeetingRecorder.Infrastructure.Persistence;
 using MeetingRecorder.Infrastructure.Security;
+using MeetingRecorder.WebApi.Common;
 using MeetingRecorder.WebApi.Middleware;
 using MeetingRecorder.WebApi.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -24,6 +25,7 @@ Log.Logger = new LoggerConfiguration()
 
 try
 {
+    DotEnv.Load();
     var builder = WebApplication.CreateBuilder(args);
 
     builder.Host.UseSerilog((context, services, configuration) => configuration

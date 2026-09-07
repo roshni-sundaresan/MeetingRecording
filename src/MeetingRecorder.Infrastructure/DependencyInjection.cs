@@ -42,6 +42,7 @@ public static class DependencyInjection
         services.Configure<ExternalServices.SarvamOptions>(configuration.GetSection(ExternalServices.SarvamOptions.SectionName));
         services.Configure<ExternalServices.Meetings.MeetingIntegrationOptions>(
             configuration.GetSection(ExternalServices.Meetings.MeetingIntegrationOptions.SectionName));
+        services.Configure<CryptoOptions>(configuration.GetSection(CryptoOptions.SectionName));
 
         services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
         services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -49,6 +50,7 @@ public static class DependencyInjection
         services.AddScoped<IPasswordHasher, BcryptPasswordHasher>();
         services.AddScoped<IChunkStorageService, LocalChunkStorageService>();
         services.AddSingleton<IFirebaseAuthService, FirebaseAuthService>();
+        services.AddSingleton<ICryptoService, CryptoService>();
 
         services.AddHttpClient<ISarvamApiService, ExternalServices.SarvamApiService>(client =>
         {

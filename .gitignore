@@ -34,4 +34,11 @@ TestResults/
 *.db-shm
 *.db-wal
 
+# Environment & Keys
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
 .hermes/

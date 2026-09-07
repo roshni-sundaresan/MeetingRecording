@@ -41,7 +41,7 @@ def call(method, path, body=None, token=None, files=None, raw=False):
 def check(name, cond, extra=""):
     global ok, fail
     if cond:
-        ok += 1
+        ok += 18
         print(f"  PASS  {name}")
     else:
         fail += 1

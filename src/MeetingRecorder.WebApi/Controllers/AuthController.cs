@@ -1,4 +1,5 @@
 using MeetingRecorder.Application.DTOs;
+using MeetingRecorder.Application.Interfaces;
 using MeetingRecorder.Application.Services;
 using MeetingRecorder.WebApi.Common;
 using Microsoft.AspNetCore.Authorization;
@@ -15,23 +16,84 @@ namespace MeetingRecorder.WebApi.Controllers;
 public class AuthController : ApiControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly ICryptoService _cryptoService;
 
-    public AuthController(IAuthService authService)
+    public AuthController(IAuthService authService, ICryptoService cryptoService)
     {
         _authService = authService;
+        _cryptoService = cryptoService;
     }
 
-    /// <summary>Exchange email + password for a JWT + refresh token.</summary>
+    /// <summary>
+    /// Exchange email + password for a JWT + refresh token.
+    /// Supports both standard JSON { email, password } and hybrid-encrypted payloads { aesKey, iv, cipherText }.
+    /// </summary>
     [AllowAnonymous]
     [HttpPost("login")]
     [ProducesResponseType(typeof(ApiResponse<AuthResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status429TooManyRequests)]
-    public async Task<ActionResult<ApiResponse<AuthResponse>>> Login([FromBody] LoginRequest request, CancellationToken ct)
+    public async Task<ActionResult<ApiResponse<AuthResponse>>> Login([FromBody] LoginRequestInput input, CancellationToken ct)
     {
+        LoginRequest request;
+        if (input.IsEncrypted)
+        {
+            var encrypted = new EncryptedPayloadRequest
+            {
+                AesKey = input.AesKey,
+                Iv = input.Iv,
+                CipherText = input.CipherText
+            };
+            request = _cryptoService.DecryptPayload<LoginRequest>(encrypted);
+        }
+        else
+        {
+            request = new LoginRequest(input.Email ?? string.Empty, input.Password ?? string.Empty);
+        }
+
         await ValidateAsync(request, ct);
         var result = await _authService.LoginAsync(request, ct);
         return Envelope(result, "Login successful.");
+    }
+
+    /// <summary>
+    /// Dedicated endpoint to log in using an encrypted payload (AES-256-CBC + RSA).
+    /// </summary>
+    [AllowAnonymous]
+    [HttpPost("login-encrypted")]
+    [ProducesResponseType(typeof(ApiResponse<AuthResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status429TooManyRequests)]
+    public async Task<ActionResult<ApiResponse<AuthResponse>>> LoginEncrypted([FromBody] EncryptedPayloadRequest encryptedRequest, CancellationToken ct)
+    {
+        var request = _cryptoService.DecryptPayload<LoginRequest>(encryptedRequest);
+        await ValidateAsync(request, ct);
+        var result = await _authService.LoginAsync(request, ct);
+        return Envelope(result, "Login successful.");
+    }
+
+    /// <summary>
+    /// Returns the server's RSA public key in PEM format used for encrypting client payloads.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("public-key")]
+    [ProducesResponseType(typeof(ApiResponse<PublicKeyResponse>), StatusCodes.Status200OK)]
+    public ActionResult<ApiResponse<PublicKeyResponse>> GetPublicKey()
+    {
+        var pem = _cryptoService.GetPublicKeyPem();
+        if (string.IsNullOrWhiteSpace(pem))
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new ApiResponse<PublicKeyResponse>
+                {
+                    Success = false,
+                    Message = "RSA public key is not configured on the server."
+                });
+        }
+
+        return Envelope(new PublicKeyResponse("RSA-2048", "PKCS#8 SubjectPublicKeyInfo PEM", pem), "Public key retrieved successfully.");
     }
 
     /// <summary>Create an account and receive a JWT + refresh token immediately.</summary>
