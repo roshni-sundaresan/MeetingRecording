@@ -39,6 +39,18 @@ public class LoginRequestInput
     public string? Email { get; set; }
     public string? Password { get; set; }
 
+    [JsonPropertyName("providerName")]
+    public string? ProviderName { get; set; }
+
+    [JsonPropertyName("provider_name")]
+    public string? ProviderNameSnake { set => ProviderName = value; }
+
+    [JsonPropertyName("oauthKey")]
+    public string? OAuthKey { get; set; }
+
+    [JsonPropertyName("oauth_key")]
+    public string? OAuthKeySnake { set => OAuthKey = value; }
+
     // Encrypted payload fields
     [JsonPropertyName("aesKey")]
     public string? AesKey { get; set; }

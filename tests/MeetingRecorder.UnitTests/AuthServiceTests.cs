@@ -117,6 +117,62 @@ public class AuthServiceTests
     }
 
     [Fact]
+    public async Task Login_WithOAuthProviderAndNewUser_ProvisionsUserAndReturnsToken()
+    {
+        _uow.Setup(u => u.Repository<User>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((User?)null);
+        _uow.Setup(u => u.Repository<User>().Add(It.IsAny<User>()));
+        _hasher.Setup(h => h.Hash(It.IsAny<string>())).Returns("random-oauth-hash");
+        _tokens.Setup(t => t.GenerateToken(It.IsAny<Guid>(), "googleuser@test.com", It.IsAny<string>(), MeetingRecorder.Domain.Constants.Roles.User))
+            .Returns(("jwt-google-token", DateTime.UtcNow.AddHours(1)));
+        SetupAuthSuccess();
+
+        var result = await CreateSut().LoginAsync(new LoginRequest(
+            Email: "googleuser@test.com",
+            Password: null,
+            ProviderName: "google",
+            OAuthKey: "ya29.sample_oauth_key"));
+
+        result.Token.Should().Be("jwt-google-token");
+        result.User.Email.Should().Be("googleuser@test.com");
+        _uow.Verify(u => u.Repository<User>().Add(It.Is<User>(user =>
+            user.Email == "googleuser@test.com" &&
+            user.ProviderName == "google" &&
+            user.OAuthKey == "ya29.sample_oauth_key")), Times.Once);
+    }
+
+    [Fact]
+    public async Task Login_WithOAuthProviderAndExistingUser_UpdatesOAuthKeyAndReturnsToken()
+    {
+        var existing = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = "existing@test.com",
+            Name = "Existing User",
+            PasswordHash = "hashed",
+            Role = MeetingRecorder.Domain.Constants.Roles.User
+        };
+
+        _uow.Setup(u => u.Repository<User>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existing);
+        _uow.Setup(u => u.Repository<User>().Update(It.IsAny<User>()));
+        _tokens.Setup(t => t.GenerateToken(existing.Id, existing.Email, existing.Name, existing.Role))
+            .Returns(("jwt-token", DateTime.UtcNow.AddHours(1)));
+        SetupAuthSuccess();
+
+        var result = await CreateSut().LoginAsync(new LoginRequest(
+            Email: "existing@test.com",
+            Password: null,
+            ProviderName: "microsoft",
+            OAuthKey: "ms_access_token_xyz"));
+
+        result.Token.Should().Be("jwt-token");
+        existing.OAuthKey.Should().Be("ms_access_token_xyz");
+        existing.ProviderName.Should().Be("microsoft");
+        _uow.Verify(u => u.Repository<User>().Update(existing), Times.Once);
+    }
+
+    [Fact]
     public async Task Register_WithDuplicateEmail_ThrowsConflict()
     {
         _uow.Setup(u => u.Repository<User>().AnyAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))

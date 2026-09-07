@@ -38,6 +38,17 @@ public class MeetingSchedulerService : IMeetingSchedulerService
         var parsedStart = MeetingTimeHelper.Parse(request.StartTime, request.TimeZone);
         var parsedEnd = MeetingTimeHelper.Parse(request.EndTime, request.TimeZone);
 
+        // If ProviderAccessToken was not passed in request, fallback to user's stored OAuthKey
+        if (string.IsNullOrWhiteSpace(request.ProviderAccessToken))
+        {
+            var user = await _uow.Repository<User>().GetByIdAsync(userId, ct);
+            if (!string.IsNullOrWhiteSpace(user?.OAuthKey))
+            {
+                request = request with { ProviderAccessToken = user.OAuthKey };
+                _logger.LogInformation("Using stored OAuthKey for user {UserId} with provider {Provider}", userId, request.Provider);
+            }
+        }
+
         var details = await client.CreateMeetingAsync(request, ct);
 
         var meeting = new ScheduledMeeting

@@ -49,7 +49,11 @@ public class AuthController : ApiControllerBase
         }
         else
         {
-            request = new LoginRequest(input.Email ?? string.Empty, input.Password ?? string.Empty);
+            request = new LoginRequest(
+                input.Email ?? string.Empty,
+                input.Password,
+                input.ProviderName,
+                input.OAuthKey);
         }
 
         await ValidateAsync(request, ct);

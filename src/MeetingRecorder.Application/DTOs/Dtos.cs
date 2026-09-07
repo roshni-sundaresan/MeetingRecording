@@ -1,10 +1,37 @@
+using System.Text.Json.Serialization;
 using MeetingRecorder.Domain;
 using MeetingRecorder.Domain.Enums;
 
 namespace MeetingRecorder.Application.DTOs;
 
 // ---------- Auth ----------
-public record LoginRequest(string Email, string Password);
+public record LoginRequest
+{
+    public string Email { get; init; } = string.Empty;
+    public string? Password { get; init; }
+
+    [JsonPropertyName("providerName")]
+    public string? ProviderName { get; init; }
+
+    [JsonPropertyName("provider_name")]
+    public string? ProviderNameSnake { init => ProviderName = value; }
+
+    [JsonPropertyName("oauthKey")]
+    public string? OAuthKey { get; init; }
+
+    [JsonPropertyName("oauth_key")]
+    public string? OAuthKeySnake { init => OAuthKey = value; }
+
+    public LoginRequest() { }
+
+    public LoginRequest(string Email, string? Password = null, string? ProviderName = null, string? OAuthKey = null)
+    {
+        this.Email = Email;
+        this.Password = Password;
+        this.ProviderName = ProviderName;
+        this.OAuthKey = OAuthKey;
+    }
+}
 
 public record RegisterRequest(string Email, string Name, string Mobile, string Password, string? ProfilePhotoUrl);
 

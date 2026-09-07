@@ -51,11 +51,58 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken ct = default)
     {
-        var user = await _uow.Repository<User>()
-            .FirstOrDefaultAsync(u => u.Email == request.Email.ToLowerInvariant().Trim() && !u.IsDeleted, ct);
+        var email = request.Email.ToLowerInvariant().Trim();
+        var userRepo = _uow.Repository<User>();
+        var user = await userRepo.FirstOrDefaultAsync(u => u.Email == email && !u.IsDeleted, ct);
 
-        if (user is null || !_passwordHasher.Verify(request.Password, user.PasswordHash))
-            throw new AppException("Invalid email or password.", 401);
+        var isOAuthLogin = !string.IsNullOrWhiteSpace(request.ProviderName);
+
+        if (isOAuthLogin)
+        {
+            if (user is null)
+            {
+                // Auto-provision user account for social / OAuth login
+                user = new User
+                {
+                    Email = email,
+                    Name = email.Split('@')[0],
+                    Mobile = string.Empty,
+                    PasswordHash = _passwordHasher.Hash(Guid.NewGuid().ToString("N")),
+                    Role = Roles.User,
+                    ProviderName = request.ProviderName?.Trim(),
+                    OAuthKey = request.OAuthKey?.Trim()
+                };
+                userRepo.Add(user);
+            }
+            else
+            {
+                // Update existing user with latest provider details and OAuth key
+                if (!string.IsNullOrWhiteSpace(request.OAuthKey))
+                    user.OAuthKey = request.OAuthKey.Trim();
+
+                if (!string.IsNullOrWhiteSpace(request.ProviderName))
+                    user.ProviderName = request.ProviderName.Trim();
+
+                userRepo.Update(user);
+            }
+            await _uow.SaveChangesAsync(ct);
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(request.Password) || user is null || !_passwordHasher.Verify(request.Password, user.PasswordHash))
+                throw new AppException("Invalid email or password.", 401);
+
+            // If an oauth_key was optionally included with password login, update it
+            if (!string.IsNullOrWhiteSpace(request.OAuthKey))
+            {
+                user.OAuthKey = request.OAuthKey.Trim();
+                if (!string.IsNullOrWhiteSpace(request.ProviderName))
+                    user.ProviderName = request.ProviderName.Trim();
+
+                userRepo.Update(user);
+                await _uow.SaveChangesAsync(ct);
+            }
+        }
 
         return await BuildAuthResponseAsync(user, ct);
     }

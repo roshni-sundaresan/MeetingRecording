@@ -18,6 +18,33 @@ public class ValidatorTests
     }
 
     [Fact]
+    public async Task LoginValidator_WithProviderNameAndNoPassword_Passes()
+    {
+        var validator = new LoginValidator();
+        var result = await validator.ValidateAsync(new LoginRequest(
+            Email: "user@test.com",
+            Password: null,
+            ProviderName: "google",
+            OAuthKey: "token-123"));
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task LoginValidator_WithoutProviderNameAndNoPassword_Fails()
+    {
+        var validator = new LoginValidator();
+        var result = await validator.ValidateAsync(new LoginRequest(
+            Email: "user@test.com",
+            Password: null,
+            ProviderName: null,
+            OAuthKey: null));
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(LoginRequest.Password));
+    }
+
+    [Fact]
     public async Task RegisterValidator_ShortPassword_Fails()
     {
         var validator = new RegisterValidator();

@@ -7,7 +7,17 @@ public class LoginValidator : AbstractValidator<DTOs.LoginRequest>
     public LoginValidator()
     {
         RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(320);
-        RuleFor(x => x.Password).NotEmpty().MaximumLength(128);
+
+        RuleFor(x => x.Password)
+            .NotEmpty().WithMessage("'password' is required when provider_name is not provided.")
+            .MaximumLength(128)
+            .When(x => string.IsNullOrWhiteSpace(x.ProviderName));
+
+        RuleFor(x => x.ProviderName)
+            .MaximumLength(50);
+
+        RuleFor(x => x.OAuthKey)
+            .MaximumLength(8000);
     }
 }
 

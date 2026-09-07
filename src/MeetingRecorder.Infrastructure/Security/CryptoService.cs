@@ -173,7 +173,8 @@ public class CryptoService : ICryptoService, IDisposable
         {
             var options = new JsonSerializerOptions
             {
-                PropertyNameCaseInsensitive = true
+                PropertyNameCaseInsensitive = true,
+                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
             };
             var result = JsonSerializer.Deserialize<T>(decryptedJson, options);
             if (result == null)

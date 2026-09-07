@@ -12,6 +12,8 @@ public class User : BaseEntity
     public string Role { get; set; } = Constants.Roles.User;
     public string? FirebaseUid { get; set; }
     public string? CustomApiKey { get; set; }
+    public string? ProviderName { get; set; }
+    public string? OAuthKey { get; set; }
 
     public ICollection<Recording> Recordings { get; set; } = new List<Recording>();
 }
