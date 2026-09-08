@@ -27,6 +27,11 @@ public interface ICryptoService
     T DecryptPayload<T>(EncryptedPayloadRequest request);
 
     /// <summary>
+    /// Decrypts an EncryptedPayloadRequest into the raw decrypted JSON string.
+    /// </summary>
+    string DecryptPayloadRaw(EncryptedPayloadRequest request);
+
+    /// <summary>
     /// Returns the public key in PEM format.
     /// </summary>
     string? GetPublicKeyPem();

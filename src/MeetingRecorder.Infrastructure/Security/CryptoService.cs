@@ -142,6 +142,33 @@ public class CryptoService : ICryptoService, IDisposable
 
     public T DecryptPayload<T>(EncryptedPayloadRequest request)
     {
+        string decryptedJson = DecryptPayloadRaw(request);
+
+        try
+        {
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+            };
+            var result = JsonSerializer.Deserialize<T>(decryptedJson, options);
+            if (result == null)
+                throw new AppException("Decrypted JSON payload could not be deserialized.", 400, "INVALID_PAYLOAD");
+
+            return result;
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning("Failed to deserialize decrypted JSON into {Type}: {Error}", typeof(T).Name, ex.Message);
+            throw new AppException($"Decrypted payload is not valid JSON for {typeof(T).Name}.", 400, "INVALID_JSON");
+        }
+    }
+
+    public string DecryptPayloadRaw(EncryptedPayloadRequest request)
+    {
+        if (request == null)
+            throw new AppException("Encrypted request payload is required.", 400, "INVALID_PAYLOAD");
+
         if (!request.IsEncrypted)
             throw new AppException("Missing required encrypted payload fields (aesKey, iv, cipherText).", 400, "INVALID_ENCRYPTED_PAYLOAD");
 
@@ -167,26 +194,7 @@ public class CryptoService : ICryptoService, IDisposable
         }
 
         byte[] decryptedAesKey = DecryptRsa(encryptedAesKeyBytes);
-        string decryptedJson = DecryptAes(request.CipherText!, decryptedAesKey, ivBytes);
-
-        try
-        {
-            var options = new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true,
-                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
-            };
-            var result = JsonSerializer.Deserialize<T>(decryptedJson, options);
-            if (result == null)
-                throw new AppException("Decrypted JSON payload could not be deserialized.", 400, "INVALID_PAYLOAD");
-
-            return result;
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogWarning("Failed to deserialize decrypted JSON into {Type}: {Error}", typeof(T).Name, ex.Message);
-            throw new AppException($"Decrypted payload is not valid JSON for {typeof(T).Name}.", 400, "INVALID_JSON");
-        }
+        return DecryptAes(request.CipherText!, decryptedAesKey, ivBytes);
     }
 
     private static string? ResolvePem(string? directPem, string? envPem, string? filePath, string? defaultFileName)

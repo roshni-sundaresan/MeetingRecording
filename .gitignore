@@ -43,3 +43,4 @@ TestResults/
 *.key
 
 .hermes/
+scratch/

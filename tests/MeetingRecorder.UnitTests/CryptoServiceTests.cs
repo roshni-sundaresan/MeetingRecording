@@ -139,4 +139,30 @@ public class CryptoServiceTests
         var ex = Assert.Throws<AppException>(() => service.DecryptPayload<LoginRequest>(request));
         Assert.Equal(400, ex.StatusCode);
     }
+
+    [Fact]
+    public void DecryptPayloadRaw_ReturnsOriginalJsonString()
+    {
+        using var service = CreateService();
+        using var rsaPub = RSA.Create();
+        rsaPub.ImportFromPem(_pubKeyPem);
+
+        var aesKey = RandomNumberGenerator.GetBytes(32);
+        var iv = RandomNumberGenerator.GetBytes(16);
+        var expectedJson = "{\"title\":\"Quarterly Review\",\"provider\":\"google_meet\"}";
+
+        var (cipherText, ivBase64) = service.EncryptAes(expectedJson, aesKey);
+        var encAesKey = rsaPub.Encrypt(aesKey, RSAEncryptionPadding.OaepSHA256);
+
+        var request = new EncryptedPayloadRequest
+        {
+            AesKey = Convert.ToBase64String(encAesKey),
+            Iv = ivBase64,
+            CipherText = cipherText
+        };
+
+        var rawDecrypted = service.DecryptPayloadRaw(request);
+
+        Assert.Equal(expectedJson, rawDecrypted);
+    }
 }

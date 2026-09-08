@@ -243,6 +243,8 @@ try
         app.UseHttpsRedirection();
     }
 
+    app.UseMiddleware<EncryptedRequestMiddleware>();
+
     app.UseAuthentication();
     app.UseAuthorization();
 

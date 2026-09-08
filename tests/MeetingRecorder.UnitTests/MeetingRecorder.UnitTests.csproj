@@ -32,6 +32,7 @@
     <ProjectReference Include="..\..\src\MeetingRecorder.Domain\MeetingRecorder.Domain.csproj" />
     <ProjectReference Include="..\..\src\MeetingRecorder.Application\MeetingRecorder.Application.csproj" />
     <ProjectReference Include="..\..\src\MeetingRecorder.Infrastructure\MeetingRecorder.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\MeetingRecorder.WebApi\MeetingRecorder.WebApi.csproj" />
   </ItemGroup>
 
 </Project>
