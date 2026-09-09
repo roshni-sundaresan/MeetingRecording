@@ -59,7 +59,9 @@ public record VerifyOtpResponse(string ResetToken, DateTime ExpiresAt);
 /// session renewal via POST /api/auth/refresh.
 /// </summary>
 public record AuthResponse(string Token, DateTime ExpiresAt, UserResponse User,
-    string TokenType = "Bearer", string? RefreshToken = null, DateTime? RefreshExpiresAt = null);
+    string TokenType = "Bearer", string? RefreshToken = null, DateTime? RefreshExpiresAt = null,
+    [property: JsonPropertyName("microsoft_auth")] string? MicrosoftAuth = null,
+    [property: JsonPropertyName("google_auth")] string? GoogleAuth = null);
 
 public record RefreshTokenRequest(string RefreshToken);
 
@@ -233,23 +235,67 @@ public record RetryChunkRequest(Guid BatchId, int ChunkNumber);
 /// <summary>
 /// Request payload to schedule a meeting on Google Meet or Microsoft Teams.
 /// </summary>
-/// <param name="Title">Subject or title of the meeting (e.g. "Sprint Planning &amp; Demo"). Max 200 characters.</param>
-/// <param name="Provider">Target meeting platform: "google_meet" or "teams".</param>
-/// <param name="StartTime">Meeting start timestamp (e.g. "2026-09-04T14:30:00" or ISO 8601 string).</param>
-/// <param name="EndTime">Meeting end timestamp (e.g. "2026-09-04T16:30:00" or ISO 8601 string). Must be after StartTime.</param>
-/// <param name="Description">Optional meeting agenda, discussion topics, or description notes.</param>
-/// <param name="Attendees">Optional list of participant email addresses to invite.</param>
-/// <param name="TimeZone">Optional IANA/Windows time zone identifier (e.g. "Asia/Kolkata", "UTC"). Default: "Asia/Kolkata".</param>
-/// <param name="ProviderAccessToken">Optional OAuth 2.0 access token (from Google Sign-In or Microsoft MSAL) if available in front-end client session.</param>
-public record ScheduleMeetingRequest(
-    string Title,
-    MeetingProvider Provider,
-    string StartTime,
-    string EndTime,
-    string? Description = null,
-    IReadOnlyList<string>? Attendees = null,
-    string? TimeZone = "Asia/Kolkata",
-    string? ProviderAccessToken = null);
+public record ScheduleMeetingRequest
+{
+    public string Title { get; init; } = string.Empty;
+    public MeetingProvider Provider { get; init; }
+    public string StartTime { get; init; } = string.Empty;
+    public string EndTime { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public IReadOnlyList<string>? Attendees { get; init; }
+    public string? TimeZone { get; init; } = "Asia/Kolkata";
+    public string? ProviderAccessToken { get; init; }
+
+    [JsonPropertyName("microsoft_auth")]
+    public string? MicrosoftAuth { get; init; }
+
+    [JsonPropertyName("microsoftAuth")]
+    public string? MicrosoftAuthCamel { init => MicrosoftAuth = value; }
+
+    [JsonPropertyName("microsoft_auth_key")]
+    public string? MicrosoftAuthKey { init => MicrosoftAuth = value; }
+
+    [JsonPropertyName("microsoftAuthKey")]
+    public string? MicrosoftAuthKeyCamel { init => MicrosoftAuth = value; }
+
+    [JsonPropertyName("google_auth")]
+    public string? GoogleAuth { get; init; }
+
+    [JsonPropertyName("googleAuth")]
+    public string? GoogleAuthCamel { init => GoogleAuth = value; }
+
+    [JsonPropertyName("google_auth_key")]
+    public string? GoogleAuthKey { init => GoogleAuth = value; }
+
+    [JsonPropertyName("googleAuthKey")]
+    public string? GoogleAuthKeyCamel { init => GoogleAuth = value; }
+
+    public ScheduleMeetingRequest() { }
+
+    public ScheduleMeetingRequest(
+        string Title,
+        MeetingProvider Provider,
+        string StartTime,
+        string EndTime,
+        string? Description = null,
+        IReadOnlyList<string>? Attendees = null,
+        string? TimeZone = "Asia/Kolkata",
+        string? ProviderAccessToken = null,
+        string? MicrosoftAuth = null,
+        string? GoogleAuth = null)
+    {
+        this.Title = Title;
+        this.Provider = Provider;
+        this.StartTime = StartTime;
+        this.EndTime = EndTime;
+        this.Description = Description;
+        this.Attendees = Attendees;
+        this.TimeZone = TimeZone ?? "Asia/Kolkata";
+        this.ProviderAccessToken = ProviderAccessToken;
+        this.MicrosoftAuth = MicrosoftAuth;
+        this.GoogleAuth = GoogleAuth;
+    }
+}
 
 public record ScheduledMeetingResponse(
     Guid Id,
@@ -268,4 +314,6 @@ public record ScheduledMeetingResponse(
     MeetingStatus Status,
     DateTime CreatedAt,
     string? LocalStartTime = null,
-    string? LocalEndTime = null);
+    string? LocalEndTime = null,
+    [property: JsonPropertyName("microsoft_auth")] string? MicrosoftAuth = null,
+    [property: JsonPropertyName("google_auth")] string? GoogleAuth = null);

@@ -59,6 +59,10 @@ public class AuthService : IAuthService
 
         if (isOAuthLogin)
         {
+            var p = request.ProviderName!.Trim().ToLowerInvariant();
+            var isMs = p.Contains("microsoft") || p.Contains("team");
+            var isGoogle = p.Contains("google");
+
             if (user is null)
             {
                 // Auto-provision user account for social / OAuth login
@@ -70,7 +74,9 @@ public class AuthService : IAuthService
                     PasswordHash = _passwordHasher.Hash(Guid.NewGuid().ToString("N")),
                     Role = Roles.User,
                     ProviderName = request.ProviderName?.Trim(),
-                    OAuthKey = request.OAuthKey?.Trim()
+                    OAuthKey = request.OAuthKey?.Trim(),
+                    MicrosoftOAuthKey = isMs && !string.IsNullOrWhiteSpace(request.OAuthKey) ? request.OAuthKey.Trim() : null,
+                    GoogleOAuthKey = isGoogle && !string.IsNullOrWhiteSpace(request.OAuthKey) ? request.OAuthKey.Trim() : null
                 };
                 userRepo.Add(user);
             }
@@ -78,11 +84,18 @@ public class AuthService : IAuthService
             {
                 // Update existing user with latest provider details and OAuth key
                 if (!string.IsNullOrWhiteSpace(request.OAuthKey))
+                {
                     user.OAuthKey = request.OAuthKey.Trim();
+                    if (isMs)
+                        user.MicrosoftOAuthKey = request.OAuthKey.Trim();
+                    else if (isGoogle)
+                        user.GoogleOAuthKey = request.OAuthKey.Trim();
+                }
 
                 if (!string.IsNullOrWhiteSpace(request.ProviderName))
                     user.ProviderName = request.ProviderName.Trim();
 
+                MigrateLegacyOAuthKeys(user);
                 userRepo.Update(user);
             }
             await _uow.SaveChangesAsync(ct);
@@ -97,14 +110,22 @@ public class AuthService : IAuthService
             {
                 user.OAuthKey = request.OAuthKey.Trim();
                 if (!string.IsNullOrWhiteSpace(request.ProviderName))
+                {
                     user.ProviderName = request.ProviderName.Trim();
+                    var p = request.ProviderName.Trim().ToLowerInvariant();
+                    if (p.Contains("microsoft") || p.Contains("team"))
+                        user.MicrosoftOAuthKey = request.OAuthKey.Trim();
+                    else if (p.Contains("google"))
+                        user.GoogleOAuthKey = request.OAuthKey.Trim();
+                }
 
+                MigrateLegacyOAuthKeys(user);
                 userRepo.Update(user);
                 await _uow.SaveChangesAsync(ct);
             }
         }
 
-        return await BuildAuthResponseAsync(user, ct);
+        return await BuildAuthResponseAsync(user, ct, request.ProviderName, request.OAuthKey);
     }
 
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
@@ -374,7 +395,27 @@ public class AuthService : IAuthService
         return stored;
     }
 
-    private async Task<AuthResponse> BuildAuthResponseAsync(User user, CancellationToken ct)
+    private static void MigrateLegacyOAuthKeys(User user)
+    {
+        if (string.IsNullOrWhiteSpace(user.OAuthKey) || string.IsNullOrWhiteSpace(user.ProviderName))
+            return;
+
+        var p = user.ProviderName.Trim().ToLowerInvariant();
+        if ((p.Contains("microsoft") || p.Contains("team")) && string.IsNullOrWhiteSpace(user.MicrosoftOAuthKey))
+        {
+            user.MicrosoftOAuthKey = user.OAuthKey.Trim();
+        }
+        else if (p.Contains("google") && string.IsNullOrWhiteSpace(user.GoogleOAuthKey))
+        {
+            user.GoogleOAuthKey = user.OAuthKey.Trim();
+        }
+    }
+
+    private async Task<AuthResponse> BuildAuthResponseAsync(
+        User user,
+        CancellationToken ct,
+        string? providerOverride = null,
+        string? oauthKeyOverride = null)
     {
         var (token, expiresAt) = _tokenService.GenerateToken(user.Id, user.Email, user.Name, user.Role);
 
@@ -389,8 +430,42 @@ public class AuthService : IAuthService
         });
         await _uow.SaveChangesAsync(ct);
 
-        return new AuthResponse(token, expiresAt, new UserResponse(
-            user.Id, user.Email, user.Name, user.Mobile, user.ProfilePhotoUrl, user.CreatedDate, user.UpdatedDate, user.Role),
-            TokenType: "Bearer", RefreshToken: refreshToken, RefreshExpiresAt: refreshExpiresAt);
+        MigrateLegacyOAuthKeys(user);
+
+        // Retrieve all stored keys for this user
+        string? microsoftAuth = user.MicrosoftOAuthKey;
+        string? googleAuth = user.GoogleOAuthKey;
+
+        // If the current request passes new provider and key, ensure it is reflected
+        if (!string.IsNullOrWhiteSpace(providerOverride) && !string.IsNullOrWhiteSpace(oauthKeyOverride))
+        {
+            var p = providerOverride.Trim().ToLowerInvariant();
+            if (p.Contains("microsoft") || p.Contains("team"))
+            {
+                microsoftAuth = oauthKeyOverride.Trim();
+            }
+            else if (p.Contains("google"))
+            {
+                googleAuth = oauthKeyOverride.Trim();
+            }
+        }
+
+        return new AuthResponse(
+            token,
+            expiresAt,
+            new UserResponse(
+                user.Id,
+                user.Email,
+                user.Name,
+                user.Mobile,
+                user.ProfilePhotoUrl,
+                user.CreatedDate,
+                user.UpdatedDate,
+                user.Role),
+            TokenType: "Bearer",
+            RefreshToken: refreshToken,
+            RefreshExpiresAt: refreshExpiresAt,
+            MicrosoftAuth: microsoftAuth,
+            GoogleAuth: googleAuth);
     }
 }

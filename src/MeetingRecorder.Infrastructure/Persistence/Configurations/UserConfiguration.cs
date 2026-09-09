@@ -21,6 +21,8 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.CustomApiKey).HasMaxLength(500);
         builder.Property(u => u.ProviderName).HasMaxLength(50);
         builder.Property(u => u.OAuthKey).HasMaxLength(8000);
+        builder.Property(u => u.MicrosoftOAuthKey).HasMaxLength(8000);
+        builder.Property(u => u.GoogleOAuthKey).HasMaxLength(8000);
 
         builder.HasIndex(u => u.Email).IsUnique()
             .HasFilter("[IsDeleted] = 0");   // unique among active users (SQL Server)

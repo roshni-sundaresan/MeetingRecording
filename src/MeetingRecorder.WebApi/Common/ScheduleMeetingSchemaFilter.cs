@@ -24,7 +24,8 @@ public class ScheduleMeetingSchemaFilter : ISchemaFilter
                     new OpenApiString("sarah@example.com")
                 },
                 ["time_zone"] = new OpenApiString("Asia/Kolkata"),
-                ["provider_access_token"] = new OpenApiString("ya29.optional_oauth_token_from_client_sso")
+                ["microsoft_auth"] = new OpenApiString("optional_microsoft_access_token"),
+                ["google_auth"] = new OpenApiString("optional_google_access_token")
             };
         }
     }

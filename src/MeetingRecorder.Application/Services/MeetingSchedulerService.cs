@@ -38,15 +38,45 @@ public class MeetingSchedulerService : IMeetingSchedulerService
         var parsedStart = MeetingTimeHelper.Parse(request.StartTime, request.TimeZone);
         var parsedEnd = MeetingTimeHelper.Parse(request.EndTime, request.TimeZone);
 
-        // If ProviderAccessToken was not passed in request, fallback to user's stored OAuthKey
-        if (string.IsNullOrWhiteSpace(request.ProviderAccessToken))
+        var user = await _uow.Repository<User>().GetByIdAsync(userId, ct);
+
+        // If MicrosoftAuth or GoogleAuth was passed in request, store/update them on user
+        if (user != null)
         {
-            var user = await _uow.Repository<User>().GetByIdAsync(userId, ct);
-            if (!string.IsNullOrWhiteSpace(user?.OAuthKey))
+            var userModified = false;
+            if (!string.IsNullOrWhiteSpace(request.MicrosoftAuth))
             {
-                request = request with { ProviderAccessToken = user.OAuthKey };
-                _logger.LogInformation("Using stored OAuthKey for user {UserId} with provider {Provider}", userId, request.Provider);
+                user.MicrosoftOAuthKey = request.MicrosoftAuth.Trim();
+                user.OAuthKey = request.MicrosoftAuth.Trim();
+                userModified = true;
             }
+
+            if (!string.IsNullOrWhiteSpace(request.GoogleAuth))
+            {
+                user.GoogleOAuthKey = request.GoogleAuth.Trim();
+                user.OAuthKey = request.GoogleAuth.Trim();
+                userModified = true;
+            }
+
+            if (userModified)
+            {
+                _uow.Repository<User>().Update(user);
+                await _uow.SaveChangesAsync(ct);
+            }
+        }
+
+        // Determine token for the provider client
+        var token = request.Provider switch
+        {
+            MeetingProvider.Teams => request.MicrosoftAuth ?? request.ProviderAccessToken ?? user?.MicrosoftOAuthKey ?? user?.OAuthKey,
+            MeetingProvider.GoogleMeet => request.GoogleAuth ?? request.ProviderAccessToken ?? user?.GoogleOAuthKey ?? user?.OAuthKey,
+            _ => request.ProviderAccessToken ?? user?.OAuthKey
+        };
+
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            request = request with { ProviderAccessToken = token };
+            _logger.LogInformation("Using OAuth token for user {UserId} with provider {Provider}", userId, request.Provider);
         }
 
         var details = await client.CreateMeetingAsync(request, ct);
@@ -79,7 +109,10 @@ public class MeetingSchedulerService : IMeetingSchedulerService
         _logger.LogInformation("Successfully scheduled meeting {MeetingId} with join URL {JoinUrl}",
             meeting.Id, meeting.JoinUrl);
 
-        return MapToResponse(meeting);
+        var microsoftAuth = user?.MicrosoftOAuthKey ?? request.MicrosoftAuth;
+        var googleAuth = user?.GoogleOAuthKey ?? request.GoogleAuth;
+
+        return MapToResponse(meeting, microsoftAuth, googleAuth);
     }
 
     public Task<PagedResult<ScheduledMeetingResponse>> GetScheduledMeetingsAsync(
@@ -127,7 +160,7 @@ public class MeetingSchedulerService : IMeetingSchedulerService
 
         var result = new PagedResult<ScheduledMeetingResponse>
         {
-            Items = items.Select(MapToResponse).ToList(),
+            Items = items.Select(m => MapToResponse(m)).ToList(),
             Page = query.Page,
             PageSize = query.PageSize,
             TotalCount = total
@@ -147,7 +180,8 @@ public class MeetingSchedulerService : IMeetingSchedulerService
             throw new NotFoundException("ScheduledMeeting", meetingId);
         }
 
-        return MapToResponse(meeting);
+        var user = await _uow.Repository<User>().GetByIdAsync(userId, ct);
+        return MapToResponse(meeting, user?.MicrosoftOAuthKey, user?.GoogleOAuthKey);
     }
 
     public async Task<bool> CancelScheduledMeetingAsync(
@@ -169,7 +203,10 @@ public class MeetingSchedulerService : IMeetingSchedulerService
         return true;
     }
 
-    private static ScheduledMeetingResponse MapToResponse(ScheduledMeeting meeting)
+    private static ScheduledMeetingResponse MapToResponse(
+        ScheduledMeeting meeting,
+        string? microsoftAuth = null,
+        string? googleAuth = null)
     {
         IReadOnlyList<string> attendees = Array.Empty<string>();
         if (!string.IsNullOrWhiteSpace(meeting.AttendeesJson))
@@ -205,6 +242,8 @@ public class MeetingSchedulerService : IMeetingSchedulerService
             Status: meeting.Status,
             CreatedAt: meeting.CreatedAt,
             LocalStartTime: localStart,
-            LocalEndTime: localEnd);
+            LocalEndTime: localEnd,
+            MicrosoftAuth: microsoftAuth,
+            GoogleAuth: googleAuth);
     }
 }

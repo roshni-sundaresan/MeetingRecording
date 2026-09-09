@@ -14,6 +14,8 @@ public class User : BaseEntity
     public string? CustomApiKey { get; set; }
     public string? ProviderName { get; set; }
     public string? OAuthKey { get; set; }
+    public string? MicrosoftOAuthKey { get; set; }
+    public string? GoogleOAuthKey { get; set; }
 
     public ICollection<Recording> Recordings { get; set; } = new List<Recording>();
 }

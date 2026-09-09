@@ -49,6 +49,12 @@ public class ScheduleMeetingValidator : AbstractValidator<ScheduleMeetingRequest
 
         RuleForEach(x => x.Attendees)
             .EmailAddress().WithMessage(attendee => $"'{attendee}' is not a valid email address.");
+
+        RuleFor(x => x.MicrosoftAuth)
+            .MaximumLength(8000).WithMessage("'microsoft_auth' cannot exceed 8000 characters.");
+
+        RuleFor(x => x.GoogleAuth)
+            .MaximumLength(8000).WithMessage("'google_auth' cannot exceed 8000 characters.");
     }
 
     private static bool BeValidTime(string timeStr)

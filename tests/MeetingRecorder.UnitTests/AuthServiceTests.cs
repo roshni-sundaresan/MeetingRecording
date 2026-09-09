@@ -135,6 +135,8 @@ public class AuthServiceTests
 
         result.Token.Should().Be("jwt-google-token");
         result.User.Email.Should().Be("googleuser@test.com");
+        result.GoogleAuth.Should().Be("ya29.sample_oauth_key");
+        result.MicrosoftAuth.Should().BeNull();
         _uow.Verify(u => u.Repository<User>().Add(It.Is<User>(user =>
             user.Email == "googleuser@test.com" &&
             user.ProviderName == "google" &&
@@ -167,9 +169,79 @@ public class AuthServiceTests
             OAuthKey: "ms_access_token_xyz"));
 
         result.Token.Should().Be("jwt-token");
+        result.MicrosoftAuth.Should().Be("ms_access_token_xyz");
+        result.GoogleAuth.Should().BeNull();
         existing.OAuthKey.Should().Be("ms_access_token_xyz");
         existing.ProviderName.Should().Be("microsoft");
         _uow.Verify(u => u.Repository<User>().Update(existing), Times.Once);
+    }
+
+    [Fact]
+    public async Task Login_WithTeamsProvider_ReturnsMicrosoftAuthAndNullGoogleAuth()
+    {
+        var existing = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = "teamsuser@test.com",
+            Name = "Teams User",
+            PasswordHash = "hashed",
+            Role = MeetingRecorder.Domain.Constants.Roles.User
+        };
+
+        _uow.Setup(u => u.Repository<User>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existing);
+        _uow.Setup(u => u.Repository<User>().Update(It.IsAny<User>()));
+        _tokens.Setup(t => t.GenerateToken(existing.Id, existing.Email, existing.Name, existing.Role))
+            .Returns(("jwt-token", DateTime.UtcNow.AddHours(1)));
+        SetupAuthSuccess();
+
+        var result = await CreateSut().LoginAsync(new LoginRequest(
+            Email: "teamsuser@test.com",
+            Password: null,
+            ProviderName: "teams",
+            OAuthKey: "teams_token_456"));
+
+        result.Token.Should().Be("jwt-token");
+        result.MicrosoftAuth.Should().Be("teams_token_456");
+        result.GoogleAuth.Should().BeNull();
+        existing.MicrosoftOAuthKey.Should().Be("teams_token_456");
+    }
+
+    [Fact]
+    public async Task Login_WithTeamsAfterPriorGoogleLogin_ReturnsBothMicrosoftAndStoredGoogleKey()
+    {
+        var userWithPriorGoogle = new User
+        {
+            Id = Guid.NewGuid(),
+            Email = "multiauth@test.com",
+            Name = "Multi Auth User",
+            PasswordHash = "hashed",
+            Role = MeetingRecorder.Domain.Constants.Roles.User,
+            ProviderName = "google",
+            OAuthKey = "ya29.stored_google_key",
+            GoogleOAuthKey = "ya29.stored_google_key",
+            MicrosoftOAuthKey = null
+        };
+
+        _uow.Setup(u => u.Repository<User>().FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(userWithPriorGoogle);
+        _uow.Setup(u => u.Repository<User>().Update(It.IsAny<User>()));
+        _tokens.Setup(t => t.GenerateToken(userWithPriorGoogle.Id, userWithPriorGoogle.Email, userWithPriorGoogle.Name, userWithPriorGoogle.Role))
+            .Returns(("jwt-token", DateTime.UtcNow.AddHours(1)));
+        SetupAuthSuccess();
+
+        var result = await CreateSut().LoginAsync(new LoginRequest(
+            Email: "multiauth@test.com",
+            Password: null,
+            ProviderName: "teams",
+            OAuthKey: "teams_new_token_789"));
+
+        result.Token.Should().Be("jwt-token");
+        result.MicrosoftAuth.Should().Be("teams_new_token_789");
+        result.GoogleAuth.Should().Be("ya29.stored_google_key");
+        userWithPriorGoogle.MicrosoftOAuthKey.Should().Be("teams_new_token_789");
+        userWithPriorGoogle.GoogleOAuthKey.Should().Be("ya29.stored_google_key");
+        _uow.Verify(u => u.Repository<User>().Update(userWithPriorGoogle), Times.Once);
     }
 
     [Fact]
