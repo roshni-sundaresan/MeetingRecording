@@ -90,14 +90,27 @@ public class MicrosoftTeamsClient : IMeetingProviderClient
         string? meetingCode = null;
         string? passcode = null;
 
-        if (root.TryGetProperty("videoTeleconferenceId", out var vtcProp))
+        if (root.TryGetProperty("joinMeetingIdSettings", out var jmIdSettings))
+        {
+            if (jmIdSettings.TryGetProperty("joinMeetingId", out var jmIdProp))
+                meetingCode = jmIdProp.GetString();
+
+            if (jmIdSettings.TryGetProperty("passcode", out var passProp))
+                passcode = passProp.GetString();
+        }
+
+        if (string.IsNullOrWhiteSpace(meetingCode) && root.TryGetProperty("videoTeleconferenceId", out var vtcProp))
         {
             meetingCode = vtcProp.GetString();
         }
 
-        if (root.TryGetProperty("joinInformation", out var joinInfo) && joinInfo.TryGetProperty("content", out var contentProp))
+        // Safety guard: ensure passcode is never an HTML blob and never exceeds column length
+        if (!string.IsNullOrWhiteSpace(passcode) &&
+            (passcode.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
+             passcode.StartsWith("<", StringComparison.OrdinalIgnoreCase) ||
+             passcode.Length > 100))
         {
-            passcode = contentProp.GetString();
+            passcode = null;
         }
 
         if (string.IsNullOrWhiteSpace(joinWebUrl))
