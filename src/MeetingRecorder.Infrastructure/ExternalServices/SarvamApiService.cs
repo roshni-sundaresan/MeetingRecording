@@ -451,9 +451,21 @@ public class SarvamApiService : ISarvamApiService
 
     public async Task<bool> ValidateApiKeyAsync(string apiKey, CancellationToken ct = default)
     {
+        var result = await ValidateApiKeyWithDetailsAsync(apiKey, ct);
+        return result.IsValid;
+    }
+
+    public async Task<ApiKeyValidationResult> ValidateApiKeyWithDetailsAsync(string apiKey, CancellationToken ct = default)
+    {
         var cleanKey = apiKey?.Trim();
         if (string.IsNullOrWhiteSpace(cleanKey) || cleanKey.Length < 10)
-            return false;
+        {
+            return new ApiKeyValidationResult(
+                IsValid: false,
+                Message: "API key must be at least 10 characters long.",
+                ErrorCode: "KEY_TOO_SHORT",
+                StatusCode: 400);
+        }
 
         try
         {
@@ -475,19 +487,71 @@ public class SarvamApiService : ISarvamApiService
             cts.CancelAfter(TimeSpan.FromSeconds(10));
 
             var response = await _httpClient.SendAsync(request, cts.Token);
+            var responseJson = await response.Content.ReadAsStringAsync(cts.Token);
 
             if (response.IsSuccessStatusCode)
             {
-                return true;
+                return new ApiKeyValidationResult(
+                    IsValid: true,
+                    Message: "API key is valid.",
+                    StatusCode: (int)response.StatusCode);
             }
 
-            _logger.LogWarning("Sarvam API key validation failed with status {StatusCode}", response.StatusCode);
-            return false;
+            // Parse Sarvam's error response
+            string? sarvamMessage = null;
+            string? sarvamCode = null;
+            try
+            {
+                using var doc = JsonDocument.Parse(responseJson);
+                if (doc.RootElement.TryGetProperty("error", out var errProp) && errProp.ValueKind == JsonValueKind.Object)
+                {
+                    if (errProp.TryGetProperty("message", out var mProp)) sarvamMessage = mProp.GetString();
+                    if (errProp.TryGetProperty("code", out var cProp)) sarvamCode = cProp.GetString();
+                }
+            }
+            catch { }
+
+            // 1. Account quota / payment / credit check
+            if (response.StatusCode == System.Net.HttpStatusCode.PaymentRequired ||
+                string.Equals(sarvamCode, "insufficient_quota_error", StringComparison.OrdinalIgnoreCase) ||
+                (sarvamMessage != null && sarvamMessage.Contains("credits", StringComparison.OrdinalIgnoreCase)))
+            {
+                _logger.LogWarning("Sarvam API key has insufficient credits: {Message}", sarvamMessage);
+                return new ApiKeyValidationResult(
+                    IsValid: false,
+                    Message: "API key is valid, but the Sarvam account has no remaining credits (insufficient quota). Please recharge credits on your Sarvam dashboard.",
+                    ErrorCode: "INSUFFICIENT_QUOTA",
+                    StatusCode: 402);
+            }
+
+            // 2. Invalid or unauthorized key
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
+                response.StatusCode == System.Net.HttpStatusCode.Forbidden ||
+                string.Equals(sarvamCode, "invalid_api_key_error", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning("Sarvam API key unauthorized: {Message}", sarvamMessage);
+                return new ApiKeyValidationResult(
+                    IsValid: false,
+                    Message: "API key is invalid or unauthorized.",
+                    ErrorCode: "INVALID_API_KEY",
+                    StatusCode: (int)response.StatusCode);
+            }
+
+            _logger.LogWarning("Sarvam API key validation failed with status {StatusCode}: {Error}", response.StatusCode, responseJson);
+            return new ApiKeyValidationResult(
+                IsValid: false,
+                Message: !string.IsNullOrWhiteSpace(sarvamMessage) ? sarvamMessage : "API key validation failed.",
+                ErrorCode: sarvamCode ?? "VALIDATION_FAILED",
+                StatusCode: (int)response.StatusCode);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error while validating Sarvam API key against external service.");
-            return false;
+            return new ApiKeyValidationResult(
+                IsValid: false,
+                Message: "Unable to connect to Sarvam AI validation service.",
+                ErrorCode: "SERVICE_UNAVAILABLE",
+                StatusCode: 503);
         }
     }
 

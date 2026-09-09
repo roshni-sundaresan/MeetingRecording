@@ -182,10 +182,10 @@ public class UserService : IUserService
 
         if (request.Validate && _sarvamApiService != null)
         {
-            var isValid = await _sarvamApiService.ValidateApiKeyAsync(key, ct);
-            if (!isValid)
+            var valResult = await _sarvamApiService.ValidateApiKeyWithDetailsAsync(key, ct);
+            if (!valResult.IsValid)
             {
-                throw new AppException("The provided Sarvam API key is invalid or unauthorized.", 400, "INVALID_API_KEY");
+                throw new AppException(valResult.Message, 400, valResult.ErrorCode ?? "INVALID_API_KEY");
             }
         }
 

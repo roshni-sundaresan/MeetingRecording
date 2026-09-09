@@ -147,6 +147,7 @@ public class UsersController : ApiControllerBase
 
     /// <summary>Validate a Sarvam API key without saving it.</summary>
     [HttpPost("api-key/validate")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(ApiResponse<ValidateApiKeyResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<ValidateApiKeyResponse>>> ValidateApiKey(
         [FromBody] ValidateApiKeyRequest request,
@@ -154,10 +155,11 @@ public class UsersController : ApiControllerBase
         CancellationToken ct)
     {
         await ValidateAsync(request, ct);
-        var isValid = await sarvamService.ValidateApiKeyAsync(request.ApiKey, ct);
+        var valResult = await sarvamService.ValidateApiKeyWithDetailsAsync(request.ApiKey, ct);
         var response = new ValidateApiKeyResponse(
-            IsValid: isValid,
-            Message: isValid ? "API key is valid." : "API key is invalid or unauthorized.");
+            IsValid: valResult.IsValid,
+            Message: valResult.Message,
+            ErrorCode: valResult.ErrorCode);
 
         return Envelope(response);
     }

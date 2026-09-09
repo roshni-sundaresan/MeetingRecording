@@ -17,4 +17,7 @@ public interface ISarvamApiService
     Task<string?> SummarizeTranscriptAsync(IReadOnlyList<TranscriptLineDto> lines, string? languageCode, string? apiKeyOverride, CancellationToken ct = default);
 
     Task<bool> ValidateApiKeyAsync(string apiKey, CancellationToken ct = default);
+    Task<ApiKeyValidationResult> ValidateApiKeyWithDetailsAsync(string apiKey, CancellationToken ct = default);
 }
+
+public record ApiKeyValidationResult(bool IsValid, string Message, string? ErrorCode = null, int? StatusCode = null);

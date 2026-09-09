@@ -201,14 +201,38 @@ public class UserServiceTests
             .ReturnsAsync(alice);
 
         var mockSarvam = new Mock<ISarvamApiService>();
-        mockSarvam.Setup(s => s.ValidateApiKeyAsync("sk_invalid_key", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(false);
+        mockSarvam.Setup(s => s.ValidateApiKeyWithDetailsAsync("sk_invalid_key", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ApiKeyValidationResult(false, "The provided Sarvam API key is invalid or unauthorized.", "INVALID_API_KEY"));
 
         var sut = new UserService(_uow.Object, _mapper, _hasher.Object, mockSarvam.Object);
 
         var act = () => sut.SetApiKeyAsync(alice.Id, new SetApiKeyRequest("sk_invalid_key", Validate: true));
 
         await act.Should().ThrowAsync<AppException>().WithMessage("*invalid or unauthorized*");
+    }
+
+    [Fact]
+    public async Task SetApiKey_WithInsufficientCredits_ThrowsAppExceptionWithClearMessage()
+    {
+        var alice = NewUser("Alice", "alice@test.com", "1111111111");
+        _repo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(alice);
+
+        var mockSarvam = new Mock<ISarvamApiService>();
+        mockSarvam.Setup(s => s.ValidateApiKeyWithDetailsAsync("sk_no_credits_key", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ApiKeyValidationResult(
+                false,
+                "API key is valid, but the Sarvam account has no remaining credits (insufficient quota). Please recharge credits on your Sarvam dashboard.",
+                "INSUFFICIENT_QUOTA",
+                402));
+
+        var sut = new UserService(_uow.Object, _mapper, _hasher.Object, mockSarvam.Object);
+
+        var act = () => sut.SetApiKeyAsync(alice.Id, new SetApiKeyRequest("sk_no_credits_key", Validate: true));
+
+        var ex = await act.Should().ThrowAsync<AppException>();
+        ex.WithMessage("*insufficient quota*");
+        ex.Which.ErrorCode.Should().Be("INSUFFICIENT_QUOTA");
     }
 
     [Fact]

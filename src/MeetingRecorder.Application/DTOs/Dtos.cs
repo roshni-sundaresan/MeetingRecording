@@ -123,9 +123,23 @@ public record UserApiKeyStatusResponse(
     string? ApiKey = null,
     string? Email = null);
 
-public record ValidateApiKeyRequest(string ApiKey);
+public record ValidateApiKeyRequest
+{
+    [JsonPropertyName("apiKey")]
+    public string ApiKey { get; init; } = string.Empty;
 
-public record ValidateApiKeyResponse(bool IsValid, string? Message);
+    [JsonPropertyName("api_key")]
+    public string ApiKeySnake { init => ApiKey = value; }
+
+    public ValidateApiKeyRequest() { }
+
+    public ValidateApiKeyRequest(string ApiKey)
+    {
+        this.ApiKey = ApiKey;
+    }
+}
+
+public record ValidateApiKeyResponse(bool IsValid, string? Message, string? ErrorCode = null);
 
 // ---------- Structured content blocks (match the Flutter app's models) ----------
 public record TranscriptLineDto(
