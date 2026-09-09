@@ -153,12 +153,44 @@ public class UserServiceTests
 
         result.HasCustomKey.Should().BeTrue();
         result.KeySource.Should().Be("custom");
-        result.MaskedKey.Should().NotBeNull();
-        result.MaskedKey.Should().Contain("****");
+        result.MaskedKey.Should().Be("sk_live_1234567890abcdef");
         alice.CustomApiKey.Should().Be("sk_live_1234567890abcdef");
         alice.UpdatedDate.Should().NotBeNull();
         _repo.Verify(r => r.Update(alice), Times.Once);
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SetApiKey_WithEmail_UpdatesUserAndReturnsStoredKey()
+    {
+        var alice = NewUser("Alice", "alice@test.com", "1111111111");
+        _repo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(alice);
+
+        var result = await CreateSut().SetApiKeyAsync(null, new SetApiKeyRequest(
+            ApiKey: "sk_live_custom_sarvam_key",
+            Email: "alice@test.com"));
+
+        result.HasCustomKey.Should().BeTrue();
+        result.MaskedKey.Should().Be("sk_live_custom_sarvam_key");
+        result.Email.Should().Be("alice@test.com");
+        alice.CustomApiKey.Should().Be("sk_live_custom_sarvam_key");
+        _repo.Verify(r => r.Update(alice), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetApiKeyStatus_WithEmail_ReturnsStoredKeyInMaskedKeyField()
+    {
+        var alice = NewUser("Alice", "alice@test.com", "1111111111");
+        alice.CustomApiKey = "sk_live_my_saved_key";
+        _repo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(alice);
+
+        var result = await CreateSut().GetApiKeyStatusAsync(null, "alice@test.com");
+
+        result.HasCustomKey.Should().BeTrue();
+        result.MaskedKey.Should().Be("sk_live_my_saved_key");
+        result.Email.Should().Be("alice@test.com");
     }
 
     [Fact]

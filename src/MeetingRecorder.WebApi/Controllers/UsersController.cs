@@ -80,35 +80,68 @@ public class UsersController : ApiControllerBase
         return Ok("User deleted.");
     }
 
-    /// <summary>Configure or replace custom Sarvam API key for current user (Option 1).</summary>
+    /// <summary>Configure or replace custom Sarvam API key for a user (Option 1). Can be called with Bearer token or by passing email/email_id in payload.</summary>
     [HttpPost("api-key")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(ApiResponse<UserApiKeyStatusResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<UserApiKeyStatusResponse>>> SetApiKey([FromBody] SetApiKeyRequest request, CancellationToken ct)
     {
-        var userId = CurrentUser.UserId ?? throw new AppException("User is not authenticated.", 401, "UNAUTHORIZED");
+        var userId = CurrentUser.UserId;
+        if (!userId.HasValue && string.IsNullOrWhiteSpace(request.Email))
+        {
+            throw new AppException("User is not authenticated or email is missing.", 401, "UNAUTHORIZED");
+        }
         await ValidateAsync(request, ct);
         var status = await _userService.SetApiKeyAsync(userId, request, ct);
         return Envelope(status, "Custom API key configured successfully. Your key will now be used for AI features.");
     }
 
-    /// <summary>Get current API key status (masked key and active key source: custom vs system).</summary>
+    /// <summary>Get current API key status for a user. Accepts email/email_id query parameter or Bearer token. Returns the stored API key in the masked_key field.</summary>
     [HttpGet("api-key")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(ApiResponse<UserApiKeyStatusResponse>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<UserApiKeyStatusResponse>>> GetApiKeyStatus(CancellationToken ct)
+    public async Task<ActionResult<ApiResponse<UserApiKeyStatusResponse>>> GetApiKeyStatus(
+        [FromQuery] string? email,
+        [FromQuery(Name = "email_id")] string? emailId,
+        [FromQuery(Name = "emailId")] string? emailIdCamel,
+        CancellationToken ct)
     {
-        var userId = CurrentUser.UserId ?? throw new AppException("User is not authenticated.", 401, "UNAUTHORIZED");
-        var status = await _userService.GetApiKeyStatusAsync(userId, ct);
+        var effectiveEmail = !string.IsNullOrWhiteSpace(email)
+            ? email
+            : (!string.IsNullOrWhiteSpace(emailId) ? emailId : emailIdCamel);
+
+        var userId = CurrentUser.UserId;
+        if (!userId.HasValue && string.IsNullOrWhiteSpace(effectiveEmail))
+        {
+            throw new AppException("User is not authenticated or email parameter is missing.", 401, "UNAUTHORIZED");
+        }
+
+        var status = await _userService.GetApiKeyStatusAsync(userId, effectiveEmail, ct);
         return Envelope(status);
     }
 
     /// <summary>Remove custom API key and revert to system-managed / purchased Sarvam key (Option 2).</summary>
     [HttpDelete("api-key")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(ApiResponse<UserApiKeyStatusResponse>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<UserApiKeyStatusResponse>>> ResetApiKey(CancellationToken ct)
+    public async Task<ActionResult<ApiResponse<UserApiKeyStatusResponse>>> ResetApiKey(
+        [FromQuery] string? email,
+        [FromQuery(Name = "email_id")] string? emailId,
+        [FromQuery(Name = "emailId")] string? emailIdCamel,
+        CancellationToken ct)
     {
-        var userId = CurrentUser.UserId ?? throw new AppException("User is not authenticated.", 401, "UNAUTHORIZED");
-        var status = await _userService.ResetApiKeyAsync(userId, ct);
+        var effectiveEmail = !string.IsNullOrWhiteSpace(email)
+            ? email
+            : (!string.IsNullOrWhiteSpace(emailId) ? emailId : emailIdCamel);
+
+        var userId = CurrentUser.UserId;
+        if (!userId.HasValue && string.IsNullOrWhiteSpace(effectiveEmail))
+        {
+            throw new AppException("User is not authenticated or email parameter is missing.", 401, "UNAUTHORIZED");
+        }
+
+        var status = await _userService.ResetApiKeyAsync(userId, effectiveEmail, ct);
         return Envelope(status, "API key reset to system default / purchased key.");
     }
 

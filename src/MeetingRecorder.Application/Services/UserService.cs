@@ -3,6 +3,8 @@ using MeetingRecorder.Application.DTOs;
 using MeetingRecorder.Application.DTOs.Common;
 using MeetingRecorder.Application.Exceptions;
 using MeetingRecorder.Application.Interfaces;
+using MeetingRecorder.Domain;
+using MeetingRecorder.Domain.Constants;
 using MeetingRecorder.Domain.Entities;
 
 namespace MeetingRecorder.Application.Services;
@@ -14,9 +16,9 @@ public interface IUserService
     Task<UserResponse> CreateUserAsync(CreateUserRequest request, CancellationToken ct = default);
     Task<UserResponse> UpdateUserAsync(Guid id, UpdateUserRequest request, CancellationToken ct = default);
     Task DeleteUserAsync(Guid id, CancellationToken ct = default);
-    Task<UserApiKeyStatusResponse> SetApiKeyAsync(Guid userId, SetApiKeyRequest request, CancellationToken ct = default);
-    Task<UserApiKeyStatusResponse> GetApiKeyStatusAsync(Guid userId, CancellationToken ct = default);
-    Task<UserApiKeyStatusResponse> ResetApiKeyAsync(Guid userId, CancellationToken ct = default);
+    Task<UserApiKeyStatusResponse> SetApiKeyAsync(Guid? userId, SetApiKeyRequest request, CancellationToken ct = default);
+    Task<UserApiKeyStatusResponse> GetApiKeyStatusAsync(Guid? userId, string? email = null, CancellationToken ct = default);
+    Task<UserApiKeyStatusResponse> ResetApiKeyAsync(Guid? userId, string? email = null, CancellationToken ct = default);
 }
 
 public class UserService : IUserService
@@ -172,11 +174,8 @@ public class UserService : IUserService
         await _uow.SaveChangesAsync(ct);
     }
 
-    public async Task<UserApiKeyStatusResponse> SetApiKeyAsync(Guid userId, SetApiKeyRequest request, CancellationToken ct = default)
+    public async Task<UserApiKeyStatusResponse> SetApiKeyAsync(Guid? userId, SetApiKeyRequest request, CancellationToken ct = default)
     {
-        var user = await _uow.Repository<User>().FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, ct)
-            ?? throw new NotFoundException(nameof(User), userId);
-
         var key = request.ApiKey?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(key))
             throw new AppException("API key cannot be empty.", 400, "VALIDATION_ERROR");
@@ -190,32 +189,109 @@ public class UserService : IUserService
             }
         }
 
+        var userRepo = _uow.Repository<User>();
+        User? user = null;
+
+        // 1. If email is provided, lookup or create user by email
+        if (!string.IsNullOrWhiteSpace(request.Email))
+        {
+            var cleanEmail = request.Email.Trim().ToLowerInvariant();
+            user = await userRepo.FirstOrDefaultAsync(u => u.Email.ToLower() == cleanEmail && !u.IsDeleted, ct);
+            if (user == null)
+            {
+                user = new User
+                {
+                    Email = cleanEmail,
+                    Name = cleanEmail.Split('@')[0],
+                    Mobile = string.Empty,
+                    PasswordHash = _passwordHasher.Hash(Guid.NewGuid().ToString("N")),
+                    Role = Roles.User,
+                    CustomApiKey = key,
+                    CreatedDate = DateTime.UtcNow,
+                    UpdatedDate = DateTime.UtcNow
+                };
+                userRepo.Add(user);
+                await _uow.SaveChangesAsync(ct);
+                return BuildApiKeyStatus(user);
+            }
+        }
+        // 2. Otherwise fall back to authenticated userId
+        else if (userId.HasValue && userId.Value != Guid.Empty)
+        {
+            user = await userRepo.FirstOrDefaultAsync(u => u.Id == userId.Value && !u.IsDeleted, ct);
+        }
+
+        if (user == null)
+        {
+            throw new AppException("User not found. Please provide an email or authenticate.", 404, "NOT_FOUND");
+        }
+
         user.CustomApiKey = key;
         user.UpdatedDate = DateTime.UtcNow;
 
-        _uow.Repository<User>().Update(user);
+        userRepo.Update(user);
         await _uow.SaveChangesAsync(ct);
 
         return BuildApiKeyStatus(user);
     }
 
-    public async Task<UserApiKeyStatusResponse> GetApiKeyStatusAsync(Guid userId, CancellationToken ct = default)
+    public async Task<UserApiKeyStatusResponse> GetApiKeyStatusAsync(Guid? userId, string? email = null, CancellationToken ct = default)
     {
-        var user = await _uow.Repository<User>().FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, ct)
-            ?? throw new NotFoundException(nameof(User), userId);
+        var userRepo = _uow.Repository<User>();
+        User? user = null;
+
+        if (!string.IsNullOrWhiteSpace(email))
+        {
+            var cleanEmail = email.Trim().ToLowerInvariant();
+            user = await userRepo.FirstOrDefaultAsync(u => u.Email.ToLower() == cleanEmail && !u.IsDeleted, ct);
+        }
+        else if (userId.HasValue && userId.Value != Guid.Empty)
+        {
+            user = await userRepo.FirstOrDefaultAsync(u => u.Id == userId.Value && !u.IsDeleted, ct);
+        }
+
+        if (user == null)
+        {
+            if (!string.IsNullOrWhiteSpace(email))
+            {
+                return new UserApiKeyStatusResponse(
+                    HasCustomKey: false,
+                    MaskedKey: null,
+                    KeySource: "system",
+                    IsSystemKeyConfigured: true,
+                    UpdatedDate: null,
+                    ApiKey: null,
+                    Email: email.Trim());
+            }
+
+            throw new NotFoundException(nameof(User), userId ?? Guid.Empty);
+        }
 
         return BuildApiKeyStatus(user);
     }
 
-    public async Task<UserApiKeyStatusResponse> ResetApiKeyAsync(Guid userId, CancellationToken ct = default)
+    public async Task<UserApiKeyStatusResponse> ResetApiKeyAsync(Guid? userId, string? email = null, CancellationToken ct = default)
     {
-        var user = await _uow.Repository<User>().FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, ct)
-            ?? throw new NotFoundException(nameof(User), userId);
+        var userRepo = _uow.Repository<User>();
+        User? user = null;
+
+        if (!string.IsNullOrWhiteSpace(email))
+        {
+            var cleanEmail = email.Trim().ToLowerInvariant();
+            user = await userRepo.FirstOrDefaultAsync(u => u.Email.ToLower() == cleanEmail && !u.IsDeleted, ct);
+        }
+        else if (userId.HasValue && userId.Value != Guid.Empty)
+        {
+            user = await userRepo.FirstOrDefaultAsync(u => u.Id == userId.Value && !u.IsDeleted, ct);
+        }
+
+        if (user == null)
+            throw new NotFoundException(nameof(User), userId ?? Guid.Empty);
 
         user.CustomApiKey = null;
         user.UpdatedDate = DateTime.UtcNow;
 
-        _uow.Repository<User>().Update(user);
+        userRepo.Update(user);
         await _uow.SaveChangesAsync(ct);
 
         return BuildApiKeyStatus(user);
@@ -224,7 +300,8 @@ public class UserService : IUserService
     private static UserApiKeyStatusResponse BuildApiKeyStatus(User user)
     {
         var hasCustomKey = !string.IsNullOrWhiteSpace(user.CustomApiKey);
-        var maskedKey = hasCustomKey ? MaskApiKey(user.CustomApiKey!) : null;
+        // Return stored API key directly in masked_key field as requested
+        var maskedKey = hasCustomKey ? user.CustomApiKey : null;
         var keySource = hasCustomKey ? "custom" : "system";
 
         return new UserApiKeyStatusResponse(
@@ -232,19 +309,8 @@ public class UserService : IUserService
             MaskedKey: maskedKey,
             KeySource: keySource,
             IsSystemKeyConfigured: true,
-            UpdatedDate: user.UpdatedDate);
-    }
-
-    private static string MaskApiKey(string key)
-    {
-        var trimmed = key.Trim();
-        if (trimmed.Length <= 8)
-            return new string('*', trimmed.Length);
-
-        var prefixLen = Math.Min(6, trimmed.Length / 3);
-        var suffixLen = Math.Min(4, trimmed.Length / 3);
-        var prefix = trimmed[..prefixLen];
-        var suffix = trimmed[^suffixLen..];
-        return $"{prefix}****{suffix}";
+            UpdatedDate: user.UpdatedDate,
+            ApiKey: user.CustomApiKey,
+            Email: user.Email);
     }
 }

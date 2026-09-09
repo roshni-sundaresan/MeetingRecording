@@ -84,14 +84,44 @@ public record UpdateProfileRequest(
     string? ProfilePhotoUrl = null);
 
 // ---------- User API Key Settings (Option 1: Custom Key vs Option 2: Buy/System Key) ----------
-public record SetApiKeyRequest(string ApiKey, bool Validate = false);
+public record SetApiKeyRequest
+{
+    [JsonPropertyName("apiKey")]
+    public string ApiKey { get; init; } = string.Empty;
+
+    [JsonPropertyName("api_key")]
+    public string ApiKeySnake { init => ApiKey = value; }
+
+    [JsonPropertyName("validate")]
+    public bool Validate { get; init; } = false;
+
+    [JsonPropertyName("email")]
+    public string? Email { get; init; }
+
+    [JsonPropertyName("email_id")]
+    public string? EmailIdSnake { init => Email = value; }
+
+    [JsonPropertyName("emailId")]
+    public string? EmailIdCamel { init => Email = value; }
+
+    public SetApiKeyRequest() { }
+
+    public SetApiKeyRequest(string ApiKey, bool Validate = false, string? Email = null)
+    {
+        this.ApiKey = ApiKey;
+        this.Validate = Validate;
+        this.Email = Email;
+    }
+}
 
 public record UserApiKeyStatusResponse(
     bool HasCustomKey,
     string? MaskedKey,
     string KeySource,
     bool IsSystemKeyConfigured,
-    DateTime? UpdatedDate = null);
+    DateTime? UpdatedDate = null,
+    string? ApiKey = null,
+    string? Email = null);
 
 public record ValidateApiKeyRequest(string ApiKey);
 

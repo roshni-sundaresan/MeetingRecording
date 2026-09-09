@@ -80,6 +80,11 @@ public class SetApiKeyValidator : AbstractValidator<DTOs.SetApiKeyRequest>
             .NotEmpty().WithMessage("API key is required.")
             .MinimumLength(8).WithMessage("API key must be at least 8 characters long.")
             .MaximumLength(500).WithMessage("API key must not exceed 500 characters.");
+
+        RuleFor(x => x.Email)
+            .EmailAddress().WithMessage("Email must be a valid email address.")
+            .MaximumLength(320).WithMessage("Email must not exceed 320 characters.")
+            .When(x => !string.IsNullOrWhiteSpace(x.Email));
     }
 }
 
