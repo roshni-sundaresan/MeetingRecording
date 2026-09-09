@@ -44,3 +44,6 @@ TestResults/
 
 .hermes/
 scratch/
+ngrok.exe
+ngrok.zip
+cloudflared.exe
