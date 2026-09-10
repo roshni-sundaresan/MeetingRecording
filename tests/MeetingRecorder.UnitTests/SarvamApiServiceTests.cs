@@ -272,6 +272,93 @@ The meeting centered on a profound discussion regarding loss, regret, and the pa
     }
 
     [Fact]
+    public void SanitizeSummary_RemovesModelReasoningMonologueAndDraftRepetition()
+    {
+        var modelWithMonologue = @"### **1. Executive Summary / Overview**
+### **2. Key Discussion Points**
+### **3. Decisions Made & Action Items**
+
+I must populate these sections. Since the transcript is nonsensical/fragmented, I should still create a summary that reflects the content without inventing meeting context. However, minutes usually require business context. The prompt asks for MOM from the transcript. 
+
+Given the constraints:
+- Start immediately with the header.
+- No disclaimers.
+- No placeholders.
+- Clean markdown.
+
+I will write a general summary acknowledging multiple speakers discussed various topics.
+
+Wait, Rule 3: ""Discussions about transcript quality/length/nature"" are not allowed.
+
+Let's draft:
+
+### **1. Executive Summary / Overview**
+The conversation involved multiple participants discussing unrelated topics.
+
+### **2. Key Discussion Points**
+*   **Demonstrations:** Speaker 1 noted that a demo should be shown.
+
+### **3. Decisions Made & Action Items**
+*   No formal decisions were made during the discussion.
+
+Is this acceptable? It follows the structure.
+
+Let's refine the content to be as accurate as possible without being verbose.
+
+### **1. Executive Summary / Overview**
+Participants engaged in an informal exchange covering demonstrations, media selection, local geography, and retail environment.
+
+### **2. Key Discussion Points**
+*   **Demonstration Timing:** Speaker 1 indicated that a demo should be presented upon arrival.
+*   **Media Consumption:** Speaker 0 suggested watching an alternate video.
+
+### **3. Decisions Made & Action Items**
+*   No definitive decisions or actionable next steps were recorded.
+
+This looks clean and complies.
+Double-check rules:
+1. Output";
+
+        var clean = SarvamApiService.SanitizeSummary(modelWithMonologue);
+
+        clean.Should().NotContain("I must populate these sections");
+        clean.Should().NotContain("Wait, Rule 3");
+        clean.Should().NotContain("Let's draft");
+        clean.Should().NotContain("Is this acceptable");
+        clean.Should().NotContain("This looks clean and complies");
+        clean.Should().NotContain("Double-check rules");
+        clean.Should().StartWith("### **1. Executive Summary / Overview**\nParticipants engaged in an informal exchange");
+        clean.Should().Contain("### **2. Key Discussion Points**");
+        clean.Should().Contain("### **3. Decisions Made & Action Items**\n*   No definitive decisions or actionable next steps were recorded.");
+    }
+
+    [Fact]
+    public void SanitizeSummary_RemovesThinkingTags()
+    {
+        var rawWithThink = @"<think>
+Thinking process:
+1. The transcript is brief.
+2. Formulate MOM sections.
+</think>
+### **1. Executive Summary / Overview**
+Participants reviewed the deployment schedule.
+
+### **2. Key Discussion Points**
+*   **Deployment:** Slated for Friday.
+
+### **3. Decisions Made & Action Items**
+*   Proceed as scheduled.";
+
+        var clean = SarvamApiService.SanitizeSummary(rawWithThink);
+
+        clean.Should().NotContain("<think>");
+        clean.Should().NotContain("Thinking process:");
+        clean.Should().StartWith("### **1. Executive Summary / Overview**");
+        clean.Should().Contain("### **2. Key Discussion Points**");
+        clean.Should().Contain("### **3. Decisions Made & Action Items**");
+    }
+
+    [Fact]
     public async Task SynthesizeTextToSpeech_WithCustomApiKeyOverride_UsesOverriddenKey()
     {
         string? capturedKey = null;

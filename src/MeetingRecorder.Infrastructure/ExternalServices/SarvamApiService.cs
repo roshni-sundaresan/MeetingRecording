@@ -341,22 +341,22 @@ public class SarvamApiService : ISarvamApiService
 
             var model = string.IsNullOrWhiteSpace(_options.SummaryModel) ? "sarvam-105b" : _options.SummaryModel;
 
-            var systemPrompt = "You are an expert AI meeting assistant. Your task is to generate a comprehensive, clear, and structured Minutes of Meeting (MOM) / Summary from the provided audio transcription.\n\n" +
-                "STRICT OUTPUT RULES:\n" +
-                "1. Output ONLY the clean markdown summary. Do NOT include ANY conversational greetings, intros, or preambles (e.g., 'Of course', 'Below is...', 'Here is a structured summary...', 'Certainly').\n" +
-                "2. Do NOT include ANY disclaimers, commentary about transcript quality/length/nature, or trailing notes (e.g., '**Disclaimer:**', '***Note:***', or explanations about lyrics/partial audio).\n" +
-                "3. Do NOT include bracketed metadata placeholders or empty headers (e.g., '[Date of Meeting]', '[Time of Meeting]', '[Not specified]', '[Name, Pooja - Speaker 1]').\n" +
-                "4. Start IMMEDIATELY with the first section header: '### **1. Executive Summary / Overview**'.\n\n" +
-                "MOM STRUCTURE TO FOLLOW:\n" +
+            var systemPrompt =
+                "You are an expert executive assistant and meeting summarizer.\n" +
+                "Your task is to generate a concise, professional Minutes of Meeting (MOM) summary based on the provided transcript.\n\n" +
+                "Guidelines:\n" +
+                "- Language: Write the summary in fluent English. Accurately translate any Hindi, Marathi, Kannada, or Hinglish into English.\n" +
+                "- Tone: Objective and factual. Summarize whatever was discussed accurately without fabricating details.\n" +
+                "- Format: Directly output the 3 markdown sections below. Do not output any conversational remarks, drafts, or internal notes.\n\n" +
+                "Required Sections:\n" +
                 "### **1. Executive Summary / Overview**\n" +
-                "[Concise paragraph summarizing the core purpose, discussion, and context of the meeting]\n\n" +
+                "<A clear paragraph summarizing the context, participants, and topics discussed>\n\n" +
                 "### **2. Key Discussion Points**\n" +
-                "*   **[Point Title / Topic]:** [Clear explanation or details discussed]\n" +
-                "*   **[Point Title / Topic]:** [Clear explanation or details discussed]\n\n" +
+                "* **[Topic / Point]:** <Key detail discussed>\n\n" +
                 "### **3. Decisions Made & Action Items**\n" +
-                "*   **[Action Item / Decision / Next Step]:** [Concise details or next steps discussed]";
+                "* <Decisions or next steps. If none, state: 'No formal decisions or action items were recorded.'>";
 
-            var userPrompt = $"Generate a clean, structured Minutes of Meeting (MOM) for the following transcript without any preambles, disclaimers, or metadata placeholders:\n\n{cleanedText}";
+            var userPrompt = $"Please summarize the following transcript into the 3-section MOM format:\n\n{cleanedText}";
 
             var payload = new
             {
@@ -366,7 +366,7 @@ public class SarvamApiService : ISarvamApiService
                     new { role = "system", content = systemPrompt },
                     new { role = "user", content = userPrompt }
                 },
-                temperature = 0.3,
+                temperature = 0.1,
                 max_tokens = 2048
             };
 
@@ -771,31 +771,59 @@ public class SarvamApiService : ISarvamApiService
 
         var text = rawSummary.Trim();
 
-        // 1. Remove disclaimer blocks (e.g., "**Disclaimer:** The provided transcript appears to be...")
+        // 1. Remove thinking / reasoning XML blocks (e.g. <think>...</think>, <reasoning>...</reasoning>)
+        text = Regex.Replace(text, @"(?is)<(?:think|thought|reasoning)>[\s\S]*?</(?:think|thought|reasoning)>", "");
+
+        // 2. Remove disclaimer blocks (e.g., "**Disclaimer:** The provided transcript appears to be...")
         text = Regex.Replace(text, @"(?is)\*{0,2}Disclaimer:\*{0,2}[\s\S]*?(?=(#{1,4}|\*{2}\d+\.|\n\n\n|\Z))", "", RegexOptions.IgnoreCase);
 
-        // 2. Remove trailing note blocks (e.g., "***Note:*** This summary is based on a partial transcript...")
+        // 3. Remove trailing note blocks (e.g., "***Note:*** This summary is based on a partial transcript...")
         text = Regex.Replace(text, @"(?is)(\*{1,3}|__)?\s*Note:\s*(\*{1,3}|__)?[\s\S]*$", "", RegexOptions.IgnoreCase);
 
-        // 3. Find starting position of first section header (e.g., "1. Executive Summary" or "Executive Summary")
-        var firstSectionMatch = Regex.Match(text, @"(?m)^(?:#{1,4}\s*)?(?:\*{1,2})?(?:1[\.\)]\s*)?Executive Summary(?:\s*/\s*Overview)?(?:\*{1,2})?", RegexOptions.IgnoreCase);
-        if (firstSectionMatch.Success && firstSectionMatch.Index > 0)
+        // 4. Find starting position of Section 1 header.
+        // If the model emitted multiple drafts or empty template headers before final output,
+        // pick the last Section 1 header that is followed by actual content (not immediately followed by Section 2 or 3).
+        var headerRegex = new Regex(@"(?m)^(?:#{1,4}\s*)?(?:\*{1,2})?(?:1[\.\)]\s*)?Executive Summary(?:\s*/\s*Overview)?(?:\*{1,2})?:?\s*$", RegexOptions.IgnoreCase);
+        var matches = headerRegex.Matches(text);
+
+        if (matches.Count > 0)
         {
-            text = text.Substring(firstSectionMatch.Index);
+            var bestMatch = matches[matches.Count - 1];
+            for (int i = matches.Count - 1; i >= 0; i--)
+            {
+                var candidate = matches[i];
+                var nextSnippetStart = candidate.Index + candidate.Length;
+                var snippetLength = Math.Min(300, text.Length - nextSnippetStart);
+                if (snippetLength > 0)
+                {
+                    var snippet = text.Substring(nextSnippetStart, snippetLength).Trim();
+                    // If not immediately followed by section 2 or 3 header, choose this one
+                    if (!Regex.IsMatch(snippet, @"^(?:#{1,4}\s*)?(?:\*{1,2})?[23][\.\)]", RegexOptions.IgnoreCase))
+                    {
+                        bestMatch = candidate;
+                        break;
+                    }
+                }
+            }
+            text = text.Substring(bestMatch.Index);
         }
         else
         {
-            var alternateHeaderMatch = Regex.Match(text, @"(?m)^(?:#{1,4}\s*)?(?:\*{1,2})?1[\.\)]\s+", RegexOptions.IgnoreCase);
-            if (alternateHeaderMatch.Success && alternateHeaderMatch.Index > 0)
+            var alternateHeaderMatches = Regex.Matches(text, @"(?m)^(?:#{1,4}\s*)?(?:\*{1,2})?1[\.\)]\s+", RegexOptions.IgnoreCase);
+            if (alternateHeaderMatches.Count > 0)
             {
-                text = text.Substring(alternateHeaderMatch.Index);
+                text = text.Substring(alternateHeaderMatches[alternateHeaderMatches.Count - 1].Index);
             }
         }
 
-        // 4. Process line-by-line to remove unwanted headers/metadata and normalize section headers
+        // 5. Strip trailing meta-commentary / self-audit / rule check blocks
+        text = Regex.Replace(text, @"(?is)\n+\s*(?:This looks clean|Double-check rules|Is this acceptable|Wait, Rule|Let me check|Let's double-check|Hope this helps|Let me know if you need)[\s\S]*$", "", RegexOptions.IgnoreCase);
+
+        // 6. Process line-by-line to normalize headers and filter remaining noise
         var rawLines = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
         var cleanedLines = new List<string>();
         bool contentStarted = false;
+        bool inSection3 = false;
 
         foreach (var line in rawLines)
         {
@@ -840,6 +868,7 @@ public class SarvamApiService : ISarvamApiService
             {
                 cleanedLines.Add("### **1. Executive Summary / Overview**");
                 contentStarted = true;
+                inSection3 = false;
                 continue;
             }
 
@@ -848,6 +877,7 @@ public class SarvamApiService : ISarvamApiService
             {
                 cleanedLines.Add("### **2. Key Discussion Points**");
                 contentStarted = true;
+                inSection3 = false;
                 continue;
             }
 
@@ -856,7 +886,14 @@ public class SarvamApiService : ISarvamApiService
             {
                 cleanedLines.Add("### **3. Decisions Made & Action Items**");
                 contentStarted = true;
+                inSection3 = true;
                 continue;
+            }
+
+            // If in section 3 and model starts emitting self-audit or meta chatter, stop further output
+            if (inSection3 && Regex.IsMatch(trimmedLine, @"^(?:This looks|Double-check|Wait,|Is this acceptable|Let me|I must|I should|I will)\b", RegexOptions.IgnoreCase))
+            {
+                break;
             }
 
             contentStarted = true;
