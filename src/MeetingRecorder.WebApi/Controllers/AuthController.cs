@@ -108,8 +108,17 @@ public class AuthController : ApiControllerBase
     [ProducesResponseType(typeof(ApiResponse<AuthResponse>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status429TooManyRequests)]
-    public async Task<ActionResult<ApiResponse<AuthResponse>>> Register([FromBody] RegisterRequest request, CancellationToken ct)
+    public async Task<ActionResult<ApiResponse<AuthResponse>>> Register([FromBody] RegisterRequestInput input, CancellationToken ct)
     {
+        var request = input.IsEncrypted
+            ? _cryptoService.DecryptPayload<RegisterRequest>(input)
+            : new RegisterRequest(
+                input.Email ?? string.Empty,
+                input.Name ?? string.Empty,
+                input.Mobile ?? string.Empty,
+                input.Password ?? string.Empty,
+                input.ProfilePhotoUrl);
+
         await ValidateAsync(request, ct);
         var result = await _authService.RegisterAsync(request, ct);
         return Envelope(result, "Registration successful.", StatusCodes.Status201Created);
@@ -152,8 +161,12 @@ public class AuthController : ApiControllerBase
     [ProducesResponseType(typeof(ApiResponse<PasswordResetRequestResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<ApiResponse<PasswordResetRequestResponse>>> RequestPasswordReset(
-        [FromBody] PasswordResetRequestRequest request, CancellationToken ct)
+        [FromBody] PasswordResetRequestInput input, CancellationToken ct)
     {
+        var request = input.IsEncrypted
+            ? _cryptoService.DecryptPayload<PasswordResetRequestRequest>(input)
+            : new PasswordResetRequestRequest(input.Username ?? string.Empty);
+
         await ValidateAsync(request, ct);
         var result = await _authService.RequestPasswordResetAsync(request, ct);
         return Envelope(result, result.Message);
@@ -170,8 +183,12 @@ public class AuthController : ApiControllerBase
     [ProducesResponseType(typeof(ApiResponse<VerifyOtpResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<VerifyOtpResponse>>> VerifyOtp(
-        [FromBody] VerifyOtpRequest request, CancellationToken ct)
+        [FromBody] VerifyOtpRequestInput input, CancellationToken ct)
     {
+        var request = input.IsEncrypted
+            ? _cryptoService.DecryptPayload<VerifyOtpRequest>(input)
+            : new VerifyOtpRequest(input.ResetRequestId, input.Otp ?? string.Empty, input.Email);
+
         await ValidateAsync(request, ct);
         var result = await _authService.VerifyOtpAsync(request, ct);
         return Envelope(result, "OTP verified.");
@@ -187,8 +204,12 @@ public class AuthController : ApiControllerBase
     [ProducesResponseType(typeof(ApiResponse<PasswordResetRequestResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<ApiResponse<PasswordResetRequestResponse>>> ResendOtp(
-        [FromBody] ResendOtpRequest request, CancellationToken ct)
+        [FromBody] ResendOtpRequestInput input, CancellationToken ct)
     {
+        var request = input.IsEncrypted
+            ? _cryptoService.DecryptPayload<ResendOtpRequest>(input)
+            : new ResendOtpRequest(input.Username ?? string.Empty);
+
         await ValidateAsync(request, ct);
         var result = await _authService.ResendOtpAsync(request, ct);
         return Envelope(result, result.Message);
@@ -206,8 +227,12 @@ public class AuthController : ApiControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<object>>> CompletePasswordReset(
-        [FromBody] CompleteResetRequest request, CancellationToken ct)
+        [FromBody] CompleteResetRequestInput input, CancellationToken ct)
     {
+        var request = input.IsEncrypted
+            ? _cryptoService.DecryptPayload<CompleteResetRequest>(input)
+            : new CompleteResetRequest(input.ResetToken, input.NewPassword ?? string.Empty, input.Email, input.Otp);
+
         await ValidateAsync(request, ct);
         await _authService.CompletePasswordResetAsync(request, ct);
         return Envelope<object>(null!, "Password reset successful. Please sign in.");

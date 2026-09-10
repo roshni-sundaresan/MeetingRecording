@@ -271,11 +271,34 @@ public class AuthService : IAuthService
     /// </summary>
     public async Task<VerifyOtpResponse> VerifyOtpAsync(VerifyOtpRequest request, CancellationToken ct = default)
     {
-        if (!Guid.TryParse(request.ResetRequestId, out var requestId))
-            throw new AppException(GenericInvalidMessage, 400, "INVALID_OTP");
+        PasswordResetRequest? reset = null;
 
-        var reset = await _uow.Repository<PasswordResetRequest>()
-            .FirstOrDefaultAsync(r => r.Id == requestId, ct);
+        // 1. Try finding by ResetRequestId if provided
+        if (!string.IsNullOrWhiteSpace(request.ResetRequestId) && Guid.TryParse(request.ResetRequestId, out var requestId))
+        {
+            reset = await _uow.Repository<PasswordResetRequest>()
+                .FirstOrDefaultAsync(r => r.Id == requestId, ct);
+        }
+
+        // 2. If ResetRequestId not provided or not found, try finding by Email / Username
+        var email = request.Email?.Trim().ToLowerInvariant();
+        if (reset is null && !string.IsNullOrWhiteSpace(email))
+        {
+            var user = await _uow.Repository<User>()
+                .FirstOrDefaultAsync(u => u.Email == email && !u.IsDeleted, ct);
+
+            if (user is not null)
+            {
+                var candidates = _uow.Repository<PasswordResetRequest>().Query()
+                    .Where(r => r.UserId == user.Id && r.Purpose == PurposePasswordReset && !r.IsUsed)
+                    .ToList();
+
+                reset = candidates
+                    .Where(r => r.ExpiresAt >= DateTime.UtcNow)
+                    .OrderByDescending(r => r.CreatedAt)
+                    .FirstOrDefault();
+            }
+        }
 
         if (reset is null || reset.Purpose != PurposePasswordReset || reset.IsUsed || reset.ExpiresAt < DateTime.UtcNow)
             throw new AppException(GenericInvalidMessage, 400, "INVALID_OTP");
@@ -354,12 +377,50 @@ public class AuthService : IAuthService
     /// </summary>
     public async Task CompletePasswordResetAsync(CompleteResetRequest request, CancellationToken ct = default)
     {
-        var tokenHash = _otpService.HashOtp(request.ResetToken);
-        var reset = await _uow.Repository<PasswordResetRequest>()
-            .FirstOrDefaultAsync(r => r.ResetTokenHash == tokenHash, ct);
+        PasswordResetRequest? reset = null;
+
+        // 1. Try finding by ResetToken if provided
+        if (!string.IsNullOrWhiteSpace(request.ResetToken))
+        {
+            var tokenHash = _otpService.HashOtp(request.ResetToken);
+            reset = await _uow.Repository<PasswordResetRequest>()
+                .FirstOrDefaultAsync(r => r.ResetTokenHash == tokenHash, ct);
+        }
+
+        // 2. If token did not match, check if email and otp were provided
+        // (or if the token passed was actually the 6-digit OTP)
+        var otpCandidate = !string.IsNullOrWhiteSpace(request.Otp)
+            ? request.Otp.Trim()
+            : (request.ResetToken?.Length == 6 && int.TryParse(request.ResetToken, out _) ? request.ResetToken : null);
+
+        var email = request.Email?.Trim().ToLowerInvariant();
+
+        if (reset is null && !string.IsNullOrWhiteSpace(email) && !string.IsNullOrWhiteSpace(otpCandidate))
+        {
+            var u = await _uow.Repository<User>()
+                .FirstOrDefaultAsync(usr => usr.Email == email && !usr.IsDeleted, ct);
+
+            if (u is not null)
+            {
+                var candidates = _uow.Repository<PasswordResetRequest>().Query()
+                    .Where(r => r.UserId == u.Id && r.Purpose == PurposePasswordReset && !r.IsUsed)
+                    .ToList();
+
+                var candidateReset = candidates
+                    .Where(r => r.ExpiresAt >= DateTime.UtcNow)
+                    .OrderByDescending(r => r.CreatedAt)
+                    .FirstOrDefault();
+
+                if (candidateReset is not null && _otpService.VerifyOtp(otpCandidate, candidateReset.OtpHash))
+                {
+                    reset = candidateReset;
+                }
+            }
+        }
 
         if (reset is null || reset.Purpose != PurposePasswordReset
-            || reset.ResetTokenExpiresAt is null || reset.ResetTokenExpiresAt < DateTime.UtcNow)
+            || (reset.ResetTokenExpiresAt.HasValue && reset.ResetTokenExpiresAt.Value < DateTime.UtcNow)
+            || reset.ExpiresAt < DateTime.UtcNow)
         {
             throw new AppException("Invalid or expired reset token.", 400, "INVALID_RESET_TOKEN");
         }

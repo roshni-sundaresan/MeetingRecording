@@ -42,7 +42,19 @@ public class VerifyOtpValidator : AbstractValidator<DTOs.VerifyOtpRequest>
 {
     public VerifyOtpValidator()
     {
-        RuleFor(x => x.ResetRequestId).NotEmpty().MaximumLength(64);
+        RuleFor(x => x.ResetRequestId)
+            .NotEmpty()
+            .MaximumLength(64)
+            .When(x => string.IsNullOrWhiteSpace(x.Email))
+            .WithMessage("Either ResetRequestId or Email must be provided.");
+
+        RuleFor(x => x.Email)
+            .NotEmpty()
+            .EmailAddress()
+            .MaximumLength(320)
+            .When(x => string.IsNullOrWhiteSpace(x.ResetRequestId))
+            .WithMessage("Either ResetRequestId or a valid Email must be provided.");
+
         RuleFor(x => x.Otp).NotEmpty().Matches(@"^\d{6}$").WithMessage("OTP must be a 6-digit code.");
     }
 }
@@ -59,7 +71,19 @@ public class CompleteResetValidator : AbstractValidator<DTOs.CompleteResetReques
 {
     public CompleteResetValidator()
     {
-        RuleFor(x => x.ResetToken).NotEmpty().MaximumLength(512);
+        RuleFor(x => x.ResetToken)
+            .NotEmpty()
+            .MaximumLength(512)
+            .When(x => string.IsNullOrWhiteSpace(x.Email) || string.IsNullOrWhiteSpace(x.Otp))
+            .WithMessage("Either ResetToken, or Email and OTP, must be provided.");
+
+        RuleFor(x => x.Email)
+            .NotEmpty()
+            .EmailAddress()
+            .MaximumLength(320)
+            .When(x => string.IsNullOrWhiteSpace(x.ResetToken))
+            .WithMessage("Either ResetToken or Email must be provided.");
+
         RuleFor(x => x.NewPassword).NotEmpty().MinimumLength(8).MaximumLength(128);
     }
 }

@@ -65,16 +65,125 @@ public record LoginRequest
     }
 }
 
-public record RegisterRequest(string Email, string Name, string Mobile, string Password, string? ProfilePhotoUrl);
+public record RegisterRequest
+{
+    public string Email { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+    public string Mobile { get; init; } = string.Empty;
+    public string Password { get; init; } = string.Empty;
+
+    [JsonPropertyName("profilePhotoUrl")]
+    public string? ProfilePhotoUrl { get; init; }
+
+    [JsonPropertyName("profile_photo_url")]
+    public string? ProfilePhotoUrlSnake { init => ProfilePhotoUrl = value; }
+
+    public RegisterRequest() { }
+    public RegisterRequest(string Email, string Name, string Mobile, string Password, string? ProfilePhotoUrl = null)
+    {
+        this.Email = Email;
+        this.Name = Name;
+        this.Mobile = Mobile;
+        this.Password = Password;
+        this.ProfilePhotoUrl = ProfilePhotoUrl;
+    }
+}
 
 // ---------- Password reset (server-authoritative OTP flow) ----------
-public record PasswordResetRequestRequest(string Username);
+public record PasswordResetRequestRequest
+{
+    [JsonPropertyName("username")]
+    public string Username { get; init; } = string.Empty;
 
-public record VerifyOtpRequest(string ResetRequestId, string Otp);
+    [JsonPropertyName("email")]
+    public string? Email { init => Username = value ?? string.Empty; }
 
-public record ResendOtpRequest(string Username);
+    public PasswordResetRequestRequest() { }
+    public PasswordResetRequestRequest(string Username)
+    {
+        this.Username = Username;
+    }
+}
 
-public record CompleteResetRequest(string ResetToken, string NewPassword);
+public record VerifyOtpRequest
+{
+    [JsonPropertyName("resetRequestId")]
+    public string? ResetRequestId { get; init; }
+
+    [JsonPropertyName("reset_request_id")]
+    public string? ResetRequestIdSnake { init => ResetRequestId = value; }
+
+    [JsonPropertyName("email")]
+    public string? Email { get; init; }
+
+    [JsonPropertyName("username")]
+    public string? Username { init => Email = value; }
+
+    [JsonPropertyName("otp")]
+    public string Otp { get; init; } = string.Empty;
+
+    public VerifyOtpRequest() { }
+    public VerifyOtpRequest(string? ResetRequestId = null, string Otp = "", string? Email = null)
+    {
+        this.ResetRequestId = ResetRequestId;
+        this.Otp = Otp;
+        this.Email = Email;
+    }
+}
+
+public record ResendOtpRequest
+{
+    [JsonPropertyName("username")]
+    public string Username { get; init; } = string.Empty;
+
+    [JsonPropertyName("email")]
+    public string? Email { init => Username = value ?? string.Empty; }
+
+    public ResendOtpRequest() { }
+    public ResendOtpRequest(string Username)
+    {
+        this.Username = Username;
+    }
+}
+
+public record CompleteResetRequest
+{
+    [JsonPropertyName("resetToken")]
+    public string? ResetToken { get; init; }
+
+    [JsonPropertyName("reset_token")]
+    public string? ResetTokenSnake { init => ResetToken = value; }
+
+    [JsonPropertyName("token")]
+    public string? Token { init => ResetToken ??= value; }
+
+    [JsonPropertyName("newPassword")]
+    public string NewPassword { get; init; } = string.Empty;
+
+    [JsonPropertyName("new_password")]
+    public string? NewPasswordSnake { init => NewPassword = value ?? string.Empty; }
+
+    [JsonPropertyName("password")]
+    public string? Password { init => NewPassword = string.IsNullOrWhiteSpace(NewPassword) ? (value ?? string.Empty) : NewPassword; }
+
+    [JsonPropertyName("email")]
+    public string? Email { get; init; }
+
+    [JsonPropertyName("username")]
+    public string? Username { init => Email = value; }
+
+    [JsonPropertyName("otp")]
+    public string? Otp { get; init; }
+
+    public CompleteResetRequest() { }
+    public CompleteResetRequest(string? ResetToken = null, string NewPassword = "", string? Email = null, string? Otp = null)
+    {
+        this.ResetToken = ResetToken;
+        this.NewPassword = NewPassword;
+        this.Email = Email;
+        this.Otp = Otp;
+    }
+}
 
 /// <summary>Response for request/resend. The OTP is never included except via
 /// <c>DevOtp</c>, which is only populated when PasswordReset:DevOtpExposure is

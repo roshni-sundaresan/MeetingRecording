@@ -33,7 +33,7 @@ public class EncryptedPayloadRequest
 /// Dual-purpose login model supporting both plain JSON (email + password)
 /// and hybrid-encrypted payloads (aesKey + iv + cipherText).
 /// </summary>
-public class LoginRequestInput
+public class LoginRequestInput : EncryptedPayloadRequest
 {
     // Plaintext fields
     public string? Email { get; set; }
@@ -74,28 +74,86 @@ public class LoginRequestInput
 
     [JsonPropertyName("googleAuthKey")]
     public string? GoogleAuthKeyCamel { set => GoogleAuth = value; }
+}
 
-    // Encrypted payload fields
-    [JsonPropertyName("aesKey")]
-    public string? AesKey { get; set; }
+public class RegisterRequestInput : EncryptedPayloadRequest
+{
+    public string? Email { get; set; }
+    public string? Name { get; set; }
+    public string? Mobile { get; set; }
+    public string? Password { get; set; }
 
-    [JsonPropertyName("aes_key")]
-    public string? AesKeySnake { set => AesKey = value; }
+    [JsonPropertyName("profilePhotoUrl")]
+    public string? ProfilePhotoUrl { get; set; }
 
-    [JsonPropertyName("iv")]
-    public string? Iv { get; set; }
+    [JsonPropertyName("profile_photo_url")]
+    public string? ProfilePhotoUrlSnake { set => ProfilePhotoUrl = value; }
+}
 
-    [JsonPropertyName("cipherText")]
-    public string? CipherText { get; set; }
+public class PasswordResetRequestInput : EncryptedPayloadRequest
+{
+    [JsonPropertyName("username")]
+    public string? Username { get; set; }
 
-    [JsonPropertyName("cipher_text")]
-    public string? CipherTextSnake { set => CipherText = value; }
+    [JsonPropertyName("email")]
+    public string? Email { set => Username = value; }
+}
 
-    [JsonIgnore]
-    public bool IsEncrypted =>
-        !string.IsNullOrWhiteSpace(AesKey) &&
-        !string.IsNullOrWhiteSpace(Iv) &&
-        !string.IsNullOrWhiteSpace(CipherText);
+public class VerifyOtpRequestInput : EncryptedPayloadRequest
+{
+    [JsonPropertyName("resetRequestId")]
+    public string? ResetRequestId { get; set; }
+
+    [JsonPropertyName("reset_request_id")]
+    public string? ResetRequestIdSnake { set => ResetRequestId = value; }
+
+    [JsonPropertyName("email")]
+    public string? Email { get; set; }
+
+    [JsonPropertyName("username")]
+    public string? Username { set => Email = value; }
+
+    [JsonPropertyName("otp")]
+    public string? Otp { get; set; }
+}
+
+public class ResendOtpRequestInput : EncryptedPayloadRequest
+{
+    [JsonPropertyName("username")]
+    public string? Username { get; set; }
+
+    [JsonPropertyName("email")]
+    public string? Email { set => Username = value; }
+}
+
+public class CompleteResetRequestInput : EncryptedPayloadRequest
+{
+    [JsonPropertyName("resetToken")]
+    public string? ResetToken { get; set; }
+
+    [JsonPropertyName("reset_token")]
+    public string? ResetTokenSnake { set => ResetToken = value; }
+
+    [JsonPropertyName("token")]
+    public string? Token { set => ResetToken ??= value; }
+
+    [JsonPropertyName("newPassword")]
+    public string? NewPassword { get; set; }
+
+    [JsonPropertyName("new_password")]
+    public string? NewPasswordSnake { set => NewPassword = value; }
+
+    [JsonPropertyName("password")]
+    public string? Password { set => NewPassword = string.IsNullOrWhiteSpace(NewPassword) ? value : NewPassword; }
+
+    [JsonPropertyName("email")]
+    public string? Email { get; set; }
+
+    [JsonPropertyName("username")]
+    public string? Username { set => Email = value; }
+
+    [JsonPropertyName("otp")]
+    public string? Otp { get; set; }
 }
 
 public record PublicKeyResponse(string Algorithm, string Format, string PublicKey);
