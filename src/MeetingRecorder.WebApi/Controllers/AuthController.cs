@@ -53,7 +53,9 @@ public class AuthController : ApiControllerBase
                 input.Email ?? string.Empty,
                 input.Password,
                 input.ProviderName,
-                input.OAuthKey);
+                input.OAuthKey,
+                input.MicrosoftAuth,
+                input.GoogleAuth);
         }
 
         await ValidateAsync(request, ct);

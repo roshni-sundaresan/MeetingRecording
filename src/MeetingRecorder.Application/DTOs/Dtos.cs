@@ -22,14 +22,46 @@ public record LoginRequest
     [JsonPropertyName("oauth_key")]
     public string? OAuthKeySnake { init => OAuthKey = value; }
 
+    [JsonPropertyName("microsoft_auth")]
+    public string? MicrosoftAuth { get; init; }
+
+    [JsonPropertyName("microsoftAuth")]
+    public string? MicrosoftAuthCamel { init => MicrosoftAuth = value; }
+
+    [JsonPropertyName("microsoft_auth_key")]
+    public string? MicrosoftAuthKey { init => MicrosoftAuth = value; }
+
+    [JsonPropertyName("microsoftAuthKey")]
+    public string? MicrosoftAuthKeyCamel { init => MicrosoftAuth = value; }
+
+    [JsonPropertyName("google_auth")]
+    public string? GoogleAuth { get; init; }
+
+    [JsonPropertyName("googleAuth")]
+    public string? GoogleAuthCamel { init => GoogleAuth = value; }
+
+    [JsonPropertyName("google_auth_key")]
+    public string? GoogleAuthKey { init => GoogleAuth = value; }
+
+    [JsonPropertyName("googleAuthKey")]
+    public string? GoogleAuthKeyCamel { init => GoogleAuth = value; }
+
     public LoginRequest() { }
 
-    public LoginRequest(string Email, string? Password = null, string? ProviderName = null, string? OAuthKey = null)
+    public LoginRequest(
+        string Email,
+        string? Password = null,
+        string? ProviderName = null,
+        string? OAuthKey = null,
+        string? MicrosoftAuth = null,
+        string? GoogleAuth = null)
     {
         this.Email = Email;
         this.Password = Password;
         this.ProviderName = ProviderName;
         this.OAuthKey = OAuthKey;
+        this.MicrosoftAuth = MicrosoftAuth;
+        this.GoogleAuth = GoogleAuth;
     }
 }
 

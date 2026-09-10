@@ -55,14 +55,25 @@ public class AuthService : IAuthService
         var userRepo = _uow.Repository<User>();
         var user = await userRepo.FirstOrDefaultAsync(u => u.Email == email && !u.IsDeleted, ct);
 
-        var isOAuthLogin = !string.IsNullOrWhiteSpace(request.ProviderName);
+        var msAuth = !string.IsNullOrWhiteSpace(request.MicrosoftAuth) ? request.MicrosoftAuth.Trim() : null;
+        var googleAuth = !string.IsNullOrWhiteSpace(request.GoogleAuth) ? request.GoogleAuth.Trim() : null;
+
+        if (!string.IsNullOrWhiteSpace(request.OAuthKey))
+        {
+            var p = request.ProviderName?.Trim().ToLowerInvariant() ?? string.Empty;
+            if (p.Contains("microsoft") || p.Contains("team"))
+                msAuth ??= request.OAuthKey.Trim();
+            else if (p.Contains("google"))
+                googleAuth ??= request.OAuthKey.Trim();
+        }
+
+        var isOAuthLogin = !string.IsNullOrWhiteSpace(request.ProviderName) ||
+                           !string.IsNullOrWhiteSpace(request.OAuthKey) ||
+                           !string.IsNullOrWhiteSpace(msAuth) ||
+                           !string.IsNullOrWhiteSpace(googleAuth);
 
         if (isOAuthLogin)
         {
-            var p = request.ProviderName!.Trim().ToLowerInvariant();
-            var isMs = p.Contains("microsoft") || p.Contains("team");
-            var isGoogle = p.Contains("google");
-
             if (user is null)
             {
                 // Auto-provision user account for social / OAuth login
@@ -73,27 +84,45 @@ public class AuthService : IAuthService
                     Mobile = string.Empty,
                     PasswordHash = _passwordHasher.Hash(Guid.NewGuid().ToString("N")),
                     Role = Roles.User,
-                    ProviderName = request.ProviderName?.Trim(),
-                    OAuthKey = request.OAuthKey?.Trim(),
-                    MicrosoftOAuthKey = isMs && !string.IsNullOrWhiteSpace(request.OAuthKey) ? request.OAuthKey.Trim() : null,
-                    GoogleOAuthKey = isGoogle && !string.IsNullOrWhiteSpace(request.OAuthKey) ? request.OAuthKey.Trim() : null
+                    ProviderName = request.ProviderName?.Trim() ?? (msAuth != null ? "teams" : (googleAuth != null ? "google" : null)),
+                    OAuthKey = msAuth ?? googleAuth ?? request.OAuthKey?.Trim(),
+                    MicrosoftOAuthKey = msAuth,
+                    GoogleOAuthKey = googleAuth
                 };
                 userRepo.Add(user);
             }
             else
             {
-                // Update existing user with latest provider details and OAuth key
-                if (!string.IsNullOrWhiteSpace(request.OAuthKey))
+                // Update existing user with latest provider details and OAuth keys
+                if (!string.IsNullOrWhiteSpace(msAuth))
+                {
+                    user.MicrosoftOAuthKey = msAuth;
+                    user.OAuthKey = msAuth;
+                }
+
+                if (!string.IsNullOrWhiteSpace(googleAuth))
+                {
+                    user.GoogleOAuthKey = googleAuth;
+                    user.OAuthKey = googleAuth;
+                }
+
+                if (!string.IsNullOrWhiteSpace(request.OAuthKey) && string.IsNullOrWhiteSpace(msAuth) && string.IsNullOrWhiteSpace(googleAuth))
                 {
                     user.OAuthKey = request.OAuthKey.Trim();
-                    if (isMs)
-                        user.MicrosoftOAuthKey = request.OAuthKey.Trim();
-                    else if (isGoogle)
-                        user.GoogleOAuthKey = request.OAuthKey.Trim();
                 }
 
                 if (!string.IsNullOrWhiteSpace(request.ProviderName))
+                {
                     user.ProviderName = request.ProviderName.Trim();
+                }
+                else if (msAuth != null && string.IsNullOrWhiteSpace(user.ProviderName))
+                {
+                    user.ProviderName = "teams";
+                }
+                else if (googleAuth != null && string.IsNullOrWhiteSpace(user.ProviderName))
+                {
+                    user.ProviderName = "google";
+                }
 
                 MigrateLegacyOAuthKeys(user);
                 userRepo.Update(user);
@@ -105,27 +134,42 @@ public class AuthService : IAuthService
             if (string.IsNullOrWhiteSpace(request.Password) || user is null || !_passwordHasher.Verify(request.Password, user.PasswordHash))
                 throw new AppException("Invalid email or password.", 401);
 
-            // If an oauth_key was optionally included with password login, update it
-            if (!string.IsNullOrWhiteSpace(request.OAuthKey))
+            var userModified = false;
+            if (!string.IsNullOrWhiteSpace(msAuth))
+            {
+                user.MicrosoftOAuthKey = msAuth;
+                user.OAuthKey = msAuth;
+                userModified = true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(googleAuth))
+            {
+                user.GoogleOAuthKey = googleAuth;
+                user.OAuthKey = googleAuth;
+                userModified = true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.OAuthKey) && string.IsNullOrWhiteSpace(msAuth) && string.IsNullOrWhiteSpace(googleAuth))
             {
                 user.OAuthKey = request.OAuthKey.Trim();
-                if (!string.IsNullOrWhiteSpace(request.ProviderName))
-                {
-                    user.ProviderName = request.ProviderName.Trim();
-                    var p = request.ProviderName.Trim().ToLowerInvariant();
-                    if (p.Contains("microsoft") || p.Contains("team"))
-                        user.MicrosoftOAuthKey = request.OAuthKey.Trim();
-                    else if (p.Contains("google"))
-                        user.GoogleOAuthKey = request.OAuthKey.Trim();
-                }
+                userModified = true;
+            }
 
+            if (!string.IsNullOrWhiteSpace(request.ProviderName))
+            {
+                user.ProviderName = request.ProviderName.Trim();
+                userModified = true;
+            }
+
+            if (userModified)
+            {
                 MigrateLegacyOAuthKeys(user);
                 userRepo.Update(user);
                 await _uow.SaveChangesAsync(ct);
             }
         }
 
-        return await BuildAuthResponseAsync(user, ct, request.ProviderName, request.OAuthKey);
+        return await BuildAuthResponseAsync(user, ct, msAuth, googleAuth);
     }
 
     public async Task<AuthResponse> RegisterAsync(RegisterRequest request, CancellationToken ct = default)
@@ -414,8 +458,8 @@ public class AuthService : IAuthService
     private async Task<AuthResponse> BuildAuthResponseAsync(
         User user,
         CancellationToken ct,
-        string? providerOverride = null,
-        string? oauthKeyOverride = null)
+        string? microsoftAuthOverride = null,
+        string? googleAuthOverride = null)
     {
         var (token, expiresAt) = _tokenService.GenerateToken(user.Id, user.Email, user.Name, user.Role);
 
@@ -432,23 +476,9 @@ public class AuthService : IAuthService
 
         MigrateLegacyOAuthKeys(user);
 
-        // Retrieve all stored keys for this user
-        string? microsoftAuth = user.MicrosoftOAuthKey;
-        string? googleAuth = user.GoogleOAuthKey;
-
-        // If the current request passes new provider and key, ensure it is reflected
-        if (!string.IsNullOrWhiteSpace(providerOverride) && !string.IsNullOrWhiteSpace(oauthKeyOverride))
-        {
-            var p = providerOverride.Trim().ToLowerInvariant();
-            if (p.Contains("microsoft") || p.Contains("team"))
-            {
-                microsoftAuth = oauthKeyOverride.Trim();
-            }
-            else if (p.Contains("google"))
-            {
-                googleAuth = oauthKeyOverride.Trim();
-            }
-        }
+        // Retrieve stored keys for this user, preferring any explicitly passed tokens in current request
+        string? microsoftAuth = !string.IsNullOrWhiteSpace(microsoftAuthOverride) ? microsoftAuthOverride.Trim() : user.MicrosoftOAuthKey;
+        string? googleAuth = !string.IsNullOrWhiteSpace(googleAuthOverride) ? googleAuthOverride.Trim() : user.GoogleOAuthKey;
 
         return new AuthResponse(
             token,

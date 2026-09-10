@@ -9,14 +9,23 @@ public class LoginValidator : AbstractValidator<DTOs.LoginRequest>
         RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(320);
 
         RuleFor(x => x.Password)
-            .NotEmpty().WithMessage("'password' is required when provider_name is not provided.")
+            .NotEmpty().WithMessage("'password' is required when provider_name, oauth_key, microsoft_auth, or google_auth is not provided.")
             .MaximumLength(128)
-            .When(x => string.IsNullOrWhiteSpace(x.ProviderName));
+            .When(x => string.IsNullOrWhiteSpace(x.ProviderName) &&
+                       string.IsNullOrWhiteSpace(x.OAuthKey) &&
+                       string.IsNullOrWhiteSpace(x.MicrosoftAuth) &&
+                       string.IsNullOrWhiteSpace(x.GoogleAuth));
 
         RuleFor(x => x.ProviderName)
             .MaximumLength(50);
 
         RuleFor(x => x.OAuthKey)
+            .MaximumLength(8000);
+
+        RuleFor(x => x.MicrosoftAuth)
+            .MaximumLength(8000);
+
+        RuleFor(x => x.GoogleAuth)
             .MaximumLength(8000);
     }
 }

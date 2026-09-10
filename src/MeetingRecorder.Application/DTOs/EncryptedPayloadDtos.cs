@@ -51,6 +51,30 @@ public class LoginRequestInput
     [JsonPropertyName("oauth_key")]
     public string? OAuthKeySnake { set => OAuthKey = value; }
 
+    [JsonPropertyName("microsoft_auth")]
+    public string? MicrosoftAuth { get; set; }
+
+    [JsonPropertyName("microsoftAuth")]
+    public string? MicrosoftAuthCamel { set => MicrosoftAuth = value; }
+
+    [JsonPropertyName("microsoft_auth_key")]
+    public string? MicrosoftAuthKey { set => MicrosoftAuth = value; }
+
+    [JsonPropertyName("microsoftAuthKey")]
+    public string? MicrosoftAuthKeyCamel { set => MicrosoftAuth = value; }
+
+    [JsonPropertyName("google_auth")]
+    public string? GoogleAuth { get; set; }
+
+    [JsonPropertyName("googleAuth")]
+    public string? GoogleAuthCamel { set => GoogleAuth = value; }
+
+    [JsonPropertyName("google_auth_key")]
+    public string? GoogleAuthKey { set => GoogleAuth = value; }
+
+    [JsonPropertyName("googleAuthKey")]
+    public string? GoogleAuthKeyCamel { set => GoogleAuth = value; }
+
     // Encrypted payload fields
     [JsonPropertyName("aesKey")]
     public string? AesKey { get; set; }
