@@ -266,7 +266,7 @@ Speaker 1: Approved. Let us finalize the vendor contracts by next Tuesday.`
         let activeRawLlmResponse = '';
 
         window.addEventListener('DOMContentLoaded', () => {
-            const savedKey = localStorage.getItem('mr_sarvam_api_key') || 'sk_22gys8xd_z9suj3WuENUtBqnAE9pSeTeJ';
+            const savedKey = localStorage.getItem('mr_sarvam_api_key') || '';
             document.getElementById('sarvamApiKeyInput').value = savedKey;
             loadTemplate('pooja');
             document.getElementById('transcriptInput').addEventListener('input', updateWordCount);

@@ -65,8 +65,7 @@ public class SarvamApiService : ISarvamApiService
         var apiKey = await GetEffectiveApiKeyAsync(apiKeyOverride, ct);
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            _logger.LogWarning("Sarvam API key is not configured. Returning empty transcript.");
-            return Array.Empty<TranscriptLineDto>();
+            throw new AppException("Sarvam API key is not configured for this user. Please configure your API key via the /api/Users/api-key endpoint.", 400, "SARVAM_KEY_MISSING");
         }
 
         var baseUrl = string.IsNullOrWhiteSpace(_options.BaseUrl) ? "https://api.sarvam.ai" : _options.BaseUrl.TrimEnd('/');
@@ -420,7 +419,7 @@ public class SarvamApiService : ISarvamApiService
         var apiKey = await GetEffectiveApiKeyAsync(apiKeyOverride, ct);
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            throw new AppException("Sarvam API key is not configured on the server.", 500, "SARVAM_KEY_MISSING");
+            throw new AppException("Sarvam API key is not configured for this user. Please configure your API key via the /api/Users/api-key endpoint.", 400, "SARVAM_KEY_MISSING");
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/text-to-speech");
@@ -557,13 +556,13 @@ public class SarvamApiService : ISarvamApiService
 
     private async Task<string> GetEffectiveApiKeyAsync(string? apiKeyOverride = null, CancellationToken ct = default)
     {
-        // 1. Explicit override passed by caller
+        // 1. Explicit override passed by caller / API request
         if (!string.IsNullOrWhiteSpace(apiKeyOverride) && apiKeyOverride.Trim().Length >= 10)
         {
             return apiKeyOverride.Trim();
         }
 
-        // 2. Check if current authenticated user has a custom API key
+        // 2. Check if current authenticated user has a custom API key stored in the database
         if (_currentUserService?.UserId is Guid userId && _uow is not null)
         {
             try
@@ -576,18 +575,29 @@ public class SarvamApiService : ISarvamApiService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to retrieve custom API key for user {UserId}. Falling back to system default.", userId);
+                _logger.LogWarning(ex, "Failed to retrieve stored custom API key for user {UserId}.", userId);
             }
         }
 
-        // 3. Environment variable override
-        var envKey = Environment.GetEnvironmentVariable("SARVAM_API_KEY");
-        if (!string.IsNullOrWhiteSpace(envKey) && envKey.Trim().Length >= 10)
+        // 3. Fallback: check by user email from claims in the database
+        if (!string.IsNullOrWhiteSpace(_currentUserService?.Email) && _uow is not null)
         {
-            return envKey.Trim();
+            try
+            {
+                var cleanEmail = _currentUserService.Email.Trim().ToLowerInvariant();
+                var user = await _uow.Repository<User>().FirstOrDefaultAsync(u => u.Email.ToLower() == cleanEmail && !u.IsDeleted, ct);
+                if (!string.IsNullOrWhiteSpace(user?.CustomApiKey) && user.CustomApiKey.Trim().Length >= 10)
+                {
+                    return user.CustomApiKey.Trim();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to retrieve stored custom API key for email {Email}.", _currentUserService.Email);
+            }
         }
 
-        // 4. Default configuration key
+        // 4. Default configuration key (empty when default key is removed from appsettings.json)
         return _options.ApiKey?.Trim() ?? string.Empty;
     }
 

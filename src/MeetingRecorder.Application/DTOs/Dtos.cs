@@ -297,11 +297,11 @@ public record ActionItemDto(string Text, bool Done);
 public record RecordingNoteDto(string? Id, int StartSeconds, int EndSeconds, string Text, string? ClipPath);
 
 // ---------- Sarvam AI TTS & STT ----------
-public record SynthesizeTtsRequest(string Text, string? LanguageCode = null);
+public record SynthesizeTtsRequest(string Text, string? LanguageCode = null, string? ApiKey = null);
 
 public record SynthesizeTtsResponse(string AudioBase64);
 
-public record TranscribeAudioRequest(Guid? RecordingId = null, string? FilePath = null, string? LanguageCode = null);
+public record TranscribeAudioRequest(Guid? RecordingId = null, string? FilePath = null, string? LanguageCode = null, string? ApiKey = null);
 
 public record TranscriptionResultResponse(
     Guid? RecordingId,
@@ -319,7 +319,7 @@ public record UploadAudioRecordingRequest(
     RecordingType? Type = null,
     Guid? RecordingId = null);
 
-public record SummarizeTextRequest(string Text, string? LanguageCode = null, Guid? RecordingId = null);
+public record SummarizeTextRequest(string Text, string? LanguageCode = null, Guid? RecordingId = null, string? ApiKey = null);
 
 public record SummarizeTextResponse(string Summary, Guid? RecordingId = null);
 

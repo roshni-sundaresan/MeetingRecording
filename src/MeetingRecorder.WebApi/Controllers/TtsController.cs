@@ -30,7 +30,7 @@ public class TtsController : ApiControllerBase
     {
         await ValidateAsync(request, ct);
 
-        var audioBase64 = await _sarvamApiService.SynthesizeTextToSpeechAsync(request.Text, request.LanguageCode, ct);
+        var audioBase64 = await _sarvamApiService.SynthesizeTextToSpeechAsync(request.Text, request.LanguageCode, request.ApiKey, ct);
         var response = new SynthesizeTtsResponse(audioBase64);
 
         return Envelope(response, "TTS audio synthesized successfully.");

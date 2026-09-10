@@ -514,6 +514,67 @@ Participants reviewed the deployment schedule.
         }
     }
 
+    [Fact]
+    public async Task TranscribeAudio_WhenNoApiKeyInDbOrOptions_ThrowsAppException()
+    {
+        var tempFile = Path.GetTempFileName();
+        await File.WriteAllBytesAsync(tempFile, new byte[100]);
+
+        try
+        {
+            var userId = Guid.NewGuid();
+            var userWithNoKey = new User
+            {
+                Id = userId,
+                Email = "user_c@test.com",
+                Name = "User C",
+                Mobile = "1234567890",
+                PasswordHash = "hash",
+                CustomApiKey = null
+            };
+
+            var currentUserServiceMock = new Mock<ICurrentUserService>();
+            currentUserServiceMock.Setup(c => c.UserId).Returns(userId);
+
+            var userRepoMock = new Mock<IRepository<User>>();
+            userRepoMock.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(userWithNoKey);
+
+            var uowMock = new Mock<IUnitOfWork>();
+            uowMock.Setup(u => u.Repository<User>()).Returns(userRepoMock.Object);
+
+            var emptyOptions = new SarvamOptions { ApiKey = "" };
+            var handler = new MockHttpMessageHandler("", HttpStatusCode.OK);
+            var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://api.sarvam.ai") };
+            var sut = new SarvamApiService(httpClient, Options.Create(emptyOptions), NullLogger<SarvamApiService>.Instance, currentUserServiceMock.Object, uowMock.Object);
+
+            var act = () => sut.TranscribeAudioAsync(tempFile);
+
+            var ex = await act.Should().ThrowAsync<AppException>();
+            ex.Which.ErrorCode.Should().Be("SARVAM_KEY_MISSING");
+            ex.Which.StatusCode.Should().Be(400);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task SynthesizeTextToSpeech_WhenNoApiKeyInDbOrConfig_ThrowsAppException()
+    {
+        var emptyOptions = new SarvamOptions { ApiKey = "" };
+        var handler = new MockHttpMessageHandler("", HttpStatusCode.OK);
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://api.sarvam.ai") };
+        var sut = new SarvamApiService(httpClient, Options.Create(emptyOptions), NullLogger<SarvamApiService>.Instance);
+
+        var act = () => sut.SynthesizeTextToSpeechAsync("Hello welcome to meeting");
+
+        var ex = await act.Should().ThrowAsync<AppException>();
+        ex.Which.ErrorCode.Should().Be("SARVAM_KEY_MISSING");
+        ex.Which.StatusCode.Should().Be(400);
+    }
+
     private class MockHttpMessageHandler : HttpMessageHandler
     {
         private readonly string _responseContent;

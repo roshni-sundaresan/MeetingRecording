@@ -47,6 +47,7 @@ public class TranscriptionController : ApiControllerBase
         [FromForm] string? languageCode = null,
         [FromForm] RecordingType? type = null,
         [FromForm] Guid? recordingId = null,
+        [FromForm] string? apiKey = null,
         CancellationToken ct = default)
     {
         if (file is null || file.Length == 0)
@@ -93,14 +94,14 @@ public class TranscriptionController : ApiControllerBase
         try
         {
             // 1. Call Sarvam STT to get transcript
-            lines = await _sarvamApiService.TranscribeAudioAsync(targetFilePath, languageCode ?? rec?.SourceLanguageCode, ct);
+            lines = await _sarvamApiService.TranscribeAudioAsync(targetFilePath, languageCode ?? rec?.SourceLanguageCode, apiKey, ct);
 
             // 2. Call Sarvam AI to generate MOM / Summary from transcript
             if (lines.Count > 0)
             {
                 try
                 {
-                    summary = await _sarvamApiService.SummarizeTranscriptAsync(lines, languageCode ?? rec?.SourceLanguageCode, ct);
+                    summary = await _sarvamApiService.SummarizeTranscriptAsync(lines, languageCode ?? rec?.SourceLanguageCode, apiKey, ct);
                 }
                 catch (Exception ex)
                 {
@@ -226,12 +227,12 @@ public class TranscriptionController : ApiControllerBase
         try
         {
             // 1. Call Sarvam STT
-            lines = await _sarvamApiService.TranscribeAudioAsync(fullPath, request.LanguageCode ?? rec?.SourceLanguageCode, ct);
+            lines = await _sarvamApiService.TranscribeAudioAsync(fullPath, request.LanguageCode ?? rec?.SourceLanguageCode, request.ApiKey, ct);
 
             // 2. Call Sarvam Summary / MOM
             if (lines.Count > 0)
             {
-                summary = await _sarvamApiService.SummarizeTranscriptAsync(lines, request.LanguageCode ?? rec?.SourceLanguageCode, ct);
+                summary = await _sarvamApiService.SummarizeTranscriptAsync(lines, request.LanguageCode ?? rec?.SourceLanguageCode, request.ApiKey, ct);
             }
 
             // 3. Store transcript and MOM/summary in DB
@@ -390,7 +391,7 @@ public class TranscriptionController : ApiControllerBase
             throw new AppException("Transcript text is required for summarization.", 400, "VALIDATION_ERROR");
         }
 
-        var summary = await _sarvamApiService.SummarizeTranscriptAsync(request.Text, request.LanguageCode, ct);
+        var summary = await _sarvamApiService.SummarizeTranscriptAsync(request.Text, request.LanguageCode, request.ApiKey, ct);
 
         if (request.RecordingId.HasValue && request.RecordingId.Value != Guid.Empty)
         {
