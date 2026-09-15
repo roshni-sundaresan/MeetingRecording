@@ -359,6 +359,52 @@ Participants reviewed the deployment schedule.
     }
 
     [Fact]
+    public void SanitizeSummary_RemovesPlaceholderTagsAndInvalidatesDummyOutput()
+    {
+        var dummyOutput = @"### **1. Executive Summary / Overview**
+<paragraph>
+
+### **2. Key Discussion Points**
+* <point>
+
+### **3. Decisions Made & Action Items**
+* <decision>
+
+Let's make sure there are no extra blank lines or text before/after. Just the three sections.
+
+Final check on content:
+- ""Participant Verbally clarified"" vs ""One speaker clarified"". Good.
+- ""HR recording summary"" no, it's MR recording summary. Yes.
+- ""no changes made to API"" directly from ""API madhye change nahi kelay"" -> ""no change was made in API"".
+- ""will not take default value"" directly from ""to default aata valuech nahi ghenar"".
+
+Looks solid";
+
+        var clean = SarvamApiService.SanitizeSummary(dummyOutput);
+
+        clean.Should().NotContain("<paragraph>");
+        clean.Should().NotContain("<point>");
+        clean.Should().NotContain("<decision>");
+        clean.Should().NotContain("Final check on content");
+        clean.Should().NotContain("Looks solid");
+
+        // The dummy output has no real content, so IsValidSummary should be false (triggering fallback)
+        SarvamApiService.IsValidSummary(clean).Should().BeFalse();
+
+        // Real summary with content should be valid
+        var realSummary = @"### **1. Executive Summary / Overview**
+The participants discussed a technical issue related to API configuration.
+
+### **2. Key Discussion Points**
+* **Point:** API default value configuration was reviewed.
+
+### **3. Decisions Made & Action Items**
+* No formal decisions or action items were recorded.";
+
+        SarvamApiService.IsValidSummary(realSummary).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task SynthesizeTextToSpeech_WithCustomApiKeyOverride_UsesOverriddenKey()
     {
         string? capturedKey = null;

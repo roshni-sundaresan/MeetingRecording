@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
@@ -5,6 +6,7 @@ using System.Text.Json;
 using System.Web;
 using MeetingRecorder.Application.Common;
 using MeetingRecorder.Application.DTOs;
+using MeetingRecorder.Application.Exceptions;
 using MeetingRecorder.Application.Interfaces;
 using MeetingRecorder.Domain.Enums;
 using Microsoft.Extensions.Logging;
@@ -45,6 +47,10 @@ public class MicrosoftTeamsClient : IMeetingProviderClient
                     return eventDetails;
                 }
             }
+            catch (AppException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to create Teams calendar event via Microsoft Graph /me/events. Falling back to /me/onlineMeetings.");
@@ -59,13 +65,21 @@ public class MicrosoftTeamsClient : IMeetingProviderClient
                     return details;
                 }
             }
+            catch (AppException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to create Teams meeting via Microsoft Graph API with provided token. Falling back to generated meeting link.");
+                _logger.LogWarning(ex, "Failed to create Teams meeting via Microsoft Graph API with provided token.");
+                throw new AppException("Failed to schedule meeting on Microsoft Teams. Please verify your Microsoft credentials and try again.", 400, "TEAMS_SCHEDULING_FAILED", ex);
             }
+
+            // If a token was provided but no meeting could be scheduled, throw rather than generating a fake meeting
+            throw new AppException("Unable to schedule meeting on Microsoft Teams with the provided credentials.", 400, "TEAMS_SCHEDULING_FAILED");
         }
 
-        // 2. Default / Developer / Mock mode: Generate a valid Teams meetup join URL structure
+        // 2. Default / Developer / Mock mode: Generate a valid Teams meetup join URL structure (ONLY when no token was provided)
         return GenerateMockTeamsMeeting(request);
     }
 
@@ -126,6 +140,13 @@ public class MicrosoftTeamsClient : IMeetingProviderClient
         {
             var err = await response.Content.ReadAsStringAsync(ct);
             _logger.LogWarning("Microsoft Graph /me/events API returned status {StatusCode}: {Error}", response.StatusCode, err);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                var msg = ExtractGraphErrorMessage(err, "Microsoft authentication token has expired or is invalid. Please sign in again with Microsoft.");
+                throw new AppException(msg, 403, "MICROSOFT_TOKEN_EXPIRED");
+            }
+
             return null;
         }
 
@@ -215,7 +236,21 @@ public class MicrosoftTeamsClient : IMeetingProviderClient
         {
             var err = await response.Content.ReadAsStringAsync(ct);
             _logger.LogWarning("Microsoft Graph API returned status {StatusCode}: {Error}", response.StatusCode, err);
-            return null;
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                var msg = ExtractGraphErrorMessage(err, "Microsoft authentication token has expired or is invalid. Please sign in again with Microsoft.");
+                throw new AppException(msg, 403, "MICROSOFT_TOKEN_EXPIRED");
+            }
+
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                var msg = ExtractGraphErrorMessage(err, "Microsoft account lacks permission to create online meetings (OnlineMeetings.ReadWrite required).");
+                throw new AppException(msg, 403, "MICROSOFT_PERMISSION_DENIED");
+            }
+
+            var generalMsg = ExtractGraphErrorMessage(err, $"Microsoft Graph meeting creation failed ({response.StatusCode}).");
+            throw new AppException(generalMsg, (int)response.StatusCode, "TEAMS_CREATION_FAILED");
         }
 
         using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
@@ -288,5 +323,24 @@ public class MicrosoftTeamsClient : IMeetingProviderClient
             MeetingCode: meetingCode,
             Passcode: passcode,
             ExternalMeetingId: externalId);
+    }
+
+    private static string ExtractGraphErrorMessage(string errorJson, string defaultMsg)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(errorJson);
+            if (doc.RootElement.TryGetProperty("error", out var errObj) &&
+                errObj.TryGetProperty("message", out var msgProp) &&
+                !string.IsNullOrWhiteSpace(msgProp.GetString()))
+            {
+                return msgProp.GetString()!;
+            }
+        }
+        catch
+        {
+            // ignored
+        }
+        return defaultMsg;
     }
 }

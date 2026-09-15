@@ -79,7 +79,38 @@ public class MeetingSchedulerService : IMeetingSchedulerService
             _logger.LogInformation("Using OAuth token for user {UserId} with provider {Provider}", userId, request.Provider);
         }
 
-        var details = await client.CreateMeetingAsync(request, ct);
+        MeetingConferenceDetails details;
+        try
+        {
+            details = await client.CreateMeetingAsync(request, ct);
+        }
+        catch (AppException ex) when (ex.ErrorCode is "MICROSOFT_TOKEN_EXPIRED" or "GOOGLE_TOKEN_EXPIRED")
+        {
+            if (user != null)
+            {
+                var userModified = false;
+                if (ex.ErrorCode == "MICROSOFT_TOKEN_EXPIRED" && !string.IsNullOrWhiteSpace(user.MicrosoftOAuthKey))
+                {
+                    user.MicrosoftOAuthKey = null;
+                    if (user.OAuthKey == token) user.OAuthKey = null;
+                    userModified = true;
+                }
+                else if (ex.ErrorCode == "GOOGLE_TOKEN_EXPIRED" && !string.IsNullOrWhiteSpace(user.GoogleOAuthKey))
+                {
+                    user.GoogleOAuthKey = null;
+                    if (user.OAuthKey == token) user.OAuthKey = null;
+                    userModified = true;
+                }
+
+                if (userModified)
+                {
+                    _uow.Repository<User>().Update(user);
+                    await _uow.SaveChangesAsync(ct);
+                    _logger.LogInformation("Cleared expired OAuth key from user profile {UserId} for provider {Provider}", userId, request.Provider);
+                }
+            }
+            throw;
+        }
 
         var meeting = new ScheduledMeeting
         {

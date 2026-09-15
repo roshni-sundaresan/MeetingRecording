@@ -1,9 +1,11 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using MeetingRecorder.Application.Common;
 using MeetingRecorder.Application.DTOs;
+using MeetingRecorder.Application.Exceptions;
 using MeetingRecorder.Application.Interfaces;
 using MeetingRecorder.Domain.Enums;
 using Microsoft.Extensions.Logging;
@@ -42,13 +44,21 @@ public class GoogleMeetClient : IMeetingProviderClient
                     return details;
                 }
             }
+            catch (AppException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to create Google Meet via Google Calendar API with provided token. Falling back to generated meet link.");
+                _logger.LogWarning(ex, "Failed to create Google Meet via Google Calendar API with provided token.");
+                throw new AppException("Failed to schedule meeting on Google Meet. Please verify your Google credentials and try again.", 400, "GOOGLE_SCHEDULING_FAILED", ex);
             }
+
+            // If a token was provided but no meeting could be scheduled, throw rather than generating a fake meeting
+            throw new AppException("Unable to schedule meeting on Google Meet with the provided credentials.", 400, "GOOGLE_SCHEDULING_FAILED");
         }
 
-        // 2. Default / Developer / Mock mode: Generate a valid Google Meet link structure
+        // 2. Default / Developer / Mock mode: Generate a valid Google Meet link structure (ONLY when no token was provided)
         return GenerateMockGoogleMeet(request);
     }
 
@@ -97,7 +107,21 @@ public class GoogleMeetClient : IMeetingProviderClient
         {
             var err = await response.Content.ReadAsStringAsync(ct);
             _logger.LogWarning("Google Calendar API returned status {StatusCode}: {Error}", response.StatusCode, err);
-            return null;
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                var msg = ExtractGoogleErrorMessage(err, "Google authentication token has expired or is invalid. Please sign in again with Google.");
+                throw new AppException(msg, 403, "GOOGLE_TOKEN_EXPIRED");
+            }
+
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                var msg = ExtractGoogleErrorMessage(err, "Google account lacks permission to create calendar events.");
+                throw new AppException(msg, 403, "GOOGLE_PERMISSION_DENIED");
+            }
+
+            var generalMsg = ExtractGoogleErrorMessage(err, $"Google Calendar meeting creation failed ({response.StatusCode}).");
+            throw new AppException(generalMsg, (int)response.StatusCode, "GOOGLE_SCHEDULING_FAILED");
         }
 
         using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
@@ -175,5 +199,24 @@ public class GoogleMeetClient : IMeetingProviderClient
         }
 
         return $"{RandomChars(3)}-{RandomChars(4)}-{RandomChars(3)}";
+    }
+
+    private static string ExtractGoogleErrorMessage(string errorJson, string defaultMsg)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(errorJson);
+            if (doc.RootElement.TryGetProperty("error", out var errObj) &&
+                errObj.TryGetProperty("message", out var msgProp) &&
+                !string.IsNullOrWhiteSpace(msgProp.GetString()))
+            {
+                return msgProp.GetString()!;
+            }
+        }
+        catch
+        {
+            // ignored
+        }
+        return defaultMsg;
     }
 }
