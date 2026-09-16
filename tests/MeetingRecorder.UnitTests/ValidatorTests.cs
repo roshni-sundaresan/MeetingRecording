@@ -139,4 +139,38 @@ public class ValidatorTests
         result.Errors.Should().Contain(e => e.PropertyName == nameof(UpdateUserRequest.Email));
         result.Errors.Should().Contain(e => e.PropertyName == nameof(UpdateUserRequest.Password));
     }
+
+    [Fact]
+    public async Task ScheduleMeetingValidator_LargeDescriptionAndSummary_PassesUnderLimit()
+    {
+        var validator = new ScheduleMeetingValidator();
+        var req = new ScheduleMeetingRequest(
+            Title: "Sprint Review",
+            Provider: MeetingRecorder.Domain.Enums.MeetingProvider.GoogleMeet,
+            StartTime: "2026-09-17T10:00:00",
+            EndTime: "2026-09-17T11:00:00",
+            Description: new string('A', 8000),
+            Summary: new string('B', 8000));
+
+        var result = await validator.ValidateAsync(req);
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ScheduleMeetingValidator_ExceedingLimit_Fails()
+    {
+        var validator = new ScheduleMeetingValidator();
+        var req = new ScheduleMeetingRequest(
+            Title: "Sprint Review",
+            Provider: MeetingRecorder.Domain.Enums.MeetingProvider.Teams,
+            StartTime: "2026-09-17T10:00:00",
+            EndTime: "2026-09-17T11:00:00",
+            Description: new string('A', 16000));
+
+        var result = await validator.ValidateAsync(req);
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(ScheduleMeetingRequest.Description));
+    }
 }

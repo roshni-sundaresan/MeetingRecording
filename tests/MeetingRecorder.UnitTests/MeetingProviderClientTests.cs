@@ -147,4 +147,73 @@ public class MeetingProviderClientTests
         ex.Which.ErrorCode.Should().Be("GOOGLE_TOKEN_EXPIRED");
         ex.Which.Message.Should().Contain("Request had invalid authentication credentials");
     }
+
+    [Fact]
+    public void MicrosoftTeamsClient_ConvertToHtml_FormatsMarkdownProperly()
+    {
+        var markdown = "### **1. Executive Summary**\r\nDiscussed key release goals.\r\n\r\n### **2. Action Items**\r\n- First action\r\n- Second action\r\n\r\n---\r\nEnd of meeting.";
+        var html = MicrosoftTeamsClient.ConvertToHtml(markdown);
+
+        html.Should().Contain("<h3><strong>1. Executive Summary</strong></h3>");
+        html.Should().Contain("<p>Discussed key release goals.</p>");
+        html.Should().Contain("<h3><strong>2. Action Items</strong></h3>");
+        html.Should().Contain("<ul><li>First action</li><li>Second action</li></ul>");
+        html.Should().Contain("<hr/>");
+        html.Should().Contain("<p>End of meeting.</p>");
+    }
+
+    [Fact]
+    public void MicrosoftTeamsClient_ConvertToHtml_PreservesExistingHtml()
+    {
+        var existingHtml = "<p>Hello <b>world</b></p>";
+        var result = MicrosoftTeamsClient.ConvertToHtml(existingHtml);
+
+        result.Should().Be(existingHtml);
+    }
+
+    [Fact]
+    public async Task MicrosoftTeamsClient_WithSummaryInDescription_SendsFormattedHtmlToGraph()
+    {
+        string? capturedBody = null;
+        var fakeSuccessResponse = @"{
+            ""id"": ""teams-evt-123"",
+            ""onlineMeeting"": {
+                ""joinUrl"": ""https://teams.microsoft.com/l/meetup-join/19%3ameeting"",
+                ""conferenceId"": ""123 456 789""
+            }
+        }";
+
+        var handler = new FakeHttpMessageHandler(req =>
+        {
+            if (req.Content != null)
+            {
+                capturedBody = req.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            }
+            return new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent(fakeSuccessResponse, Encoding.UTF8, "application/json")
+            };
+        });
+
+        var client = new MicrosoftTeamsClient(
+            new HttpClient(handler),
+            Options.Create(new MeetingIntegrationOptions()),
+            NullLogger<MicrosoftTeamsClient>.Instance);
+
+        var req = new ScheduleMeetingRequest(
+            Title: "Sprint Review",
+            Provider: MeetingProvider.Teams,
+            StartTime: "2026-09-15T10:00:00",
+            EndTime: "2026-09-15T11:00:00",
+            Description: "### Summary\n- Deliverables met\n- All tests pass",
+            ProviderAccessToken: "valid-graph-token");
+
+        var result = await client.CreateMeetingAsync(req);
+
+        result.Should().NotBeNull();
+        capturedBody.Should().NotBeNull();
+        capturedBody.Should().Contain("\"contentType\":\"HTML\"");
+        capturedBody.Should().Contain("<h3>Summary</h3>");
+        capturedBody.Should().Contain("<ul><li>Deliverables met</li><li>All tests pass</li></ul>");
+    }
 }

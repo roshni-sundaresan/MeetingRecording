@@ -34,6 +34,8 @@ public class MeetingsController : ApiControllerBase
     /// 
     /// **Optional Parameters from Front-End:**
     /// - **`description`** (string): Meeting agenda or description notes.
+    /// - **`recording_id`** (GUID): Recording ID to automatically fetch its AI summary/MOM from the database and include it in the calendar invite.
+    /// - **`summary`** (string): Directly pass a meeting summary or notes to include in the Google Meet / Teams calendar invite.
     /// - **`attendees`** (string array): Participant email addresses to invite (e.g., `["alice@example.com", "bob@example.com"]`).
     /// - **`time_zone`** (string): Time zone identifier (e.g., "Asia/Kolkata", "UTC", "America/New_York"). Default: "Asia/Kolkata".
     /// - **`provider_access_token`** (string): Delegated OAuth 2.0 access token (from Google Sign-In or Microsoft MSAL) if available in front-end client session.

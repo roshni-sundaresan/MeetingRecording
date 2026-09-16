@@ -38,7 +38,10 @@ public class ScheduleMeetingValidator : AbstractValidator<ScheduleMeetingRequest
             .WithMessage("'end_time' must be after 'start_time'.");
 
         RuleFor(x => x.Description)
-            .MaximumLength(4000).WithMessage("'description' cannot exceed 4000 characters.");
+            .MaximumLength(15000).WithMessage("'description' cannot exceed 15000 characters.");
+
+        RuleFor(x => x.Summary)
+            .MaximumLength(15000).WithMessage("'summary' cannot exceed 15000 characters.");
 
         RuleFor(x => x.TimeZone)
             .MaximumLength(100).WithMessage("'time_zone' cannot exceed 100 characters.");

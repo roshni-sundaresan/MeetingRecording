@@ -387,6 +387,15 @@ public record ScheduleMeetingRequest
     public string? TimeZone { get; init; } = "Asia/Kolkata";
     public string? ProviderAccessToken { get; init; }
 
+    [JsonPropertyName("recording_id")]
+    public Guid? RecordingId { get; init; }
+
+    [JsonPropertyName("recordingId")]
+    public Guid? RecordingIdCamel { init => RecordingId = value; }
+
+    [JsonPropertyName("summary")]
+    public string? Summary { get; init; }
+
     [JsonPropertyName("microsoft_auth")]
     public string? MicrosoftAuth { get; init; }
 
@@ -423,7 +432,9 @@ public record ScheduleMeetingRequest
         string? TimeZone = "Asia/Kolkata",
         string? ProviderAccessToken = null,
         string? MicrosoftAuth = null,
-        string? GoogleAuth = null)
+        string? GoogleAuth = null,
+        Guid? RecordingId = null,
+        string? Summary = null)
     {
         this.Title = Title;
         this.Provider = Provider;
@@ -435,6 +446,8 @@ public record ScheduleMeetingRequest
         this.ProviderAccessToken = ProviderAccessToken;
         this.MicrosoftAuth = MicrosoftAuth;
         this.GoogleAuth = GoogleAuth;
+        this.RecordingId = RecordingId;
+        this.Summary = Summary;
     }
 }
 

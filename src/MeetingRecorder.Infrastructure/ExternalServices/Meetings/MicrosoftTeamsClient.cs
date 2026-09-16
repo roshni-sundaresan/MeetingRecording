@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Web;
 using MeetingRecorder.Application.Common;
 using MeetingRecorder.Application.DTOs;
@@ -19,6 +20,11 @@ public class MicrosoftTeamsClient : IMeetingProviderClient
     private readonly HttpClient _httpClient;
     private readonly MeetingIntegrationOptions _options;
     private readonly ILogger<MicrosoftTeamsClient> _logger;
+
+    private static readonly JsonSerializerOptions GraphJsonOptions = new()
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
 
     public MeetingProvider Provider => MeetingProvider.Teams;
 
@@ -116,7 +122,7 @@ public class MicrosoftTeamsClient : IMeetingProviderClient
             body = new
             {
                 contentType = "HTML",
-                content = description
+                content = ConvertToHtml(description)
             },
             start = new
             {
@@ -133,7 +139,7 @@ public class MicrosoftTeamsClient : IMeetingProviderClient
             onlineMeetingProvider = "teamsForBusiness"
         };
 
-        req.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+        req.Content = new StringContent(JsonSerializer.Serialize(body, GraphJsonOptions), Encoding.UTF8, "application/json");
 
         var response = await _httpClient.SendAsync(req, ct);
         if (!response.IsSuccessStatusCode)
@@ -342,5 +348,103 @@ public class MicrosoftTeamsClient : IMeetingProviderClient
             // ignored
         }
         return defaultMsg;
+    }
+
+    public static string ConvertToHtml(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return string.Empty;
+
+        // If the content already contains common HTML block tags, return as-is
+        if (content.Contains("<p>") || content.Contains("<br") || content.Contains("<div>") ||
+            content.Contains("<h1>") || content.Contains("<h2>") || content.Contains("<h3>") ||
+            content.Contains("<ul>") || content.Contains("<ol>"))
+        {
+            return content;
+        }
+
+        var lines = content.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        var sb = new StringBuilder();
+        var inList = false;
+
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.Trim();
+
+            if (string.IsNullOrEmpty(line))
+            {
+                if (inList)
+                {
+                    sb.Append("</ul>");
+                    inList = false;
+                }
+                sb.Append("<br/>");
+                continue;
+            }
+
+            // Headings
+            if (line.StartsWith("### "))
+            {
+                if (inList) { sb.Append("</ul>"); inList = false; }
+                sb.Append("<h3>").Append(FormatInline(line[4..])).Append("</h3>");
+            }
+            else if (line.StartsWith("## "))
+            {
+                if (inList) { sb.Append("</ul>"); inList = false; }
+                sb.Append("<h2>").Append(FormatInline(line[3..])).Append("</h2>");
+            }
+            else if (line.StartsWith("# "))
+            {
+                if (inList) { sb.Append("</ul>"); inList = false; }
+                sb.Append("<h1>").Append(FormatInline(line[2..])).Append("</h1>");
+            }
+            else if (line.StartsWith("---") || line.StartsWith("***"))
+            {
+                if (inList) { sb.Append("</ul>"); inList = false; }
+                sb.Append("<hr/>");
+            }
+            else if (line.StartsWith("• ") || line.StartsWith("- ") || line.StartsWith("* "))
+            {
+                if (!inList)
+                {
+                    sb.Append("<ul>");
+                    inList = true;
+                }
+                sb.Append("<li>").Append(FormatInline(line[2..])).Append("</li>");
+            }
+            else if (Regex.IsMatch(line, @"^\d+\.\s+") ||
+                     line.Equals("Meeting Summary:", StringComparison.OrdinalIgnoreCase) ||
+                     line.Equals("Meeting Summary / MOM:", StringComparison.OrdinalIgnoreCase))
+            {
+                if (inList) { sb.Append("</ul>"); inList = false; }
+                sb.Append("<p><strong>").Append(FormatInline(line)).Append("</strong></p>");
+            }
+            else
+            {
+                if (inList)
+                {
+                    sb.Append("</ul>");
+                    inList = false;
+                }
+                sb.Append("<p>").Append(FormatInline(line)).Append("</p>");
+            }
+        }
+
+        if (inList)
+        {
+            sb.Append("</ul>");
+        }
+
+        return sb.ToString();
+    }
+
+    private static string FormatInline(string text)
+    {
+        var encoded = WebUtility.HtmlEncode(text);
+        // Replace **bold** with <strong>bold</strong>
+        encoded = Regex.Replace(encoded, @"\*\*(.+?)\*\*", "<strong>$1</strong>");
+        // Replace *italic* with <em>italic</em>
+        encoded = Regex.Replace(encoded, @"\*(.+?)\*", "<em>$1</em>");
+        return encoded;
     }
 }

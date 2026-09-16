@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using MeetingRecorder.Application.Common;
 using MeetingRecorder.Application.DTOs;
 using MeetingRecorder.Application.DTOs.Common;
@@ -39,6 +40,59 @@ public class MeetingSchedulerService : IMeetingSchedulerService
         var parsedEnd = MeetingTimeHelper.Parse(request.EndTime, request.TimeZone);
 
         var user = await _uow.Repository<User>().GetByIdAsync(userId, ct);
+
+        // Extract or fetch meeting summary/MOM if provided
+        var summaryToInclude = request.Summary?.Trim();
+        if (string.IsNullOrWhiteSpace(summaryToInclude) && request.RecordingId.HasValue)
+        {
+            var recordingRepo = _uow.Repository<Recording>();
+            var recording = await recordingRepo.FirstOrDefaultAsync(r => r.Id == request.RecordingId.Value && !r.IsDeleted, ct)
+                ?? throw new NotFoundException(nameof(Recording), request.RecordingId.Value);
+
+            if (user?.Role != "Admin" && recording.UserId != userId)
+            {
+                throw new AppException("You do not have access to this recording.", 403, "RECORDING_ACCESS_DENIED");
+            }
+
+            if (!string.IsNullOrWhiteSpace(recording.Summary))
+            {
+                summaryToInclude = recording.Summary.Trim();
+                _logger.LogInformation("Loaded summary from recording {RecordingId} for scheduled meeting", request.RecordingId.Value);
+            }
+            else
+            {
+                _logger.LogWarning("Recording {RecordingId} does not have a summary yet", request.RecordingId.Value);
+            }
+        }
+
+        // Build composite description with clean formatting (stripping hashtags, stars, and markdown noise)
+        string? effectiveDescription;
+        if (!string.IsNullOrWhiteSpace(summaryToInclude))
+        {
+            var cleanSummary = CleanMarkdown(summaryToInclude);
+            if (!string.IsNullOrWhiteSpace(request.Description))
+            {
+                var cleanDesc = CleanMarkdown(request.Description);
+                if (cleanDesc.Contains(cleanSummary, StringComparison.OrdinalIgnoreCase))
+                {
+                    effectiveDescription = cleanDesc;
+                }
+                else
+                {
+                    effectiveDescription = $"{cleanDesc}\n\nMeeting Summary:\n{cleanSummary}";
+                }
+            }
+            else
+            {
+                effectiveDescription = cleanSummary;
+            }
+        }
+        else
+        {
+            effectiveDescription = CleanMarkdown(request.Description);
+        }
+
+        request = request with { Description = string.IsNullOrWhiteSpace(effectiveDescription) ? null : effectiveDescription };
 
         // If MicrosoftAuth or GoogleAuth was passed in request, store/update them on user
         if (user != null)
@@ -112,12 +166,18 @@ public class MeetingSchedulerService : IMeetingSchedulerService
             throw;
         }
 
+        var dbDescription = request.Description?.Trim();
+        if (dbDescription != null && dbDescription.Length > 4000)
+        {
+            dbDescription = dbDescription[..4000];
+        }
+
         var meeting = new ScheduledMeeting
         {
             Id = Guid.NewGuid(),
             UserId = userId,
             Title = request.Title.Trim(),
-            Description = request.Description?.Trim(),
+            Description = dbDescription,
             Provider = request.Provider,
             StartTime = parsedStart.UtcDateTime,
             EndTime = parsedEnd.UtcDateTime,
@@ -276,5 +336,41 @@ public class MeetingSchedulerService : IMeetingSchedulerService
             LocalEndTime: localEnd,
             MicrosoftAuth: microsoftAuth,
             GoogleAuth: googleAuth);
+    }
+
+    public static string CleanMarkdown(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        var cleaned = new List<string>();
+
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.Trim();
+
+            // Strip horizontal rules (---, ***, ___)
+            if (Regex.IsMatch(line, @"^(?:---+|\*\*\*+|___+)$"))
+                continue;
+
+            // Strip leading markdown heading markers (#, ##, ###, ####, etc.)
+            var t = Regex.Replace(line, @"^#{1,6}\s*", "");
+
+            // Convert bullet points (* or - or + followed by space) to clean bullet point (• )
+            t = Regex.Replace(t, @"^[*\-+]\s+", "• ");
+
+            // Strip bold and italic markdown markers (**bold**, *italic*, __bold__, _italic_)
+            t = Regex.Replace(t, @"\*\*(.+?)\*\*", "$1");
+            t = Regex.Replace(t, @"\*(.+?)\*", "$1");
+            t = Regex.Replace(t, @"__(.+?)__", "$1");
+
+            cleaned.Add(t);
+        }
+
+        var result = string.Join("\n", cleaned);
+        // Collapse 3+ consecutive newlines to 2
+        result = Regex.Replace(result, @"\n{3,}", "\n\n");
+        return result.Trim();
     }
 }
