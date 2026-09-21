@@ -97,7 +97,7 @@ public class UsersController : ApiControllerBase
         return Envelope(status, "Custom API key configured successfully. Your key will now be used for AI features.");
     }
 
-    /// <summary>Get current API key status for a user. Accepts email/email_id query parameter or Bearer token. Returns the stored API key in the masked_key field.</summary>
+    /// <summary>Get current API key status for a user. Accepts email/email_id query parameter or Bearer token. Returns the masked API key in the masked_key and api_key fields.</summary>
     [HttpGet("api-key")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(ApiResponse<UserApiKeyStatusResponse>), StatusCodes.Status200OK)]

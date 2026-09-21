@@ -153,7 +153,7 @@ public class UserServiceTests
 
         result.HasCustomKey.Should().BeTrue();
         result.KeySource.Should().Be("custom");
-        result.MaskedKey.Should().Be("sk_live_1234567890abcdef");
+        result.MaskedKey.Should().Be("sk_l****************cdef");
         alice.CustomApiKey.Should().Be("sk_live_1234567890abcdef");
         alice.UpdatedDate.Should().NotBeNull();
         _repo.Verify(r => r.Update(alice), Times.Once);
@@ -172,7 +172,7 @@ public class UserServiceTests
             Email: "alice@test.com"));
 
         result.HasCustomKey.Should().BeTrue();
-        result.MaskedKey.Should().Be("sk_live_custom_sarvam_key");
+        result.MaskedKey.Should().Be("sk_l*****************_key");
         result.Email.Should().Be("alice@test.com");
         alice.CustomApiKey.Should().Be("sk_live_custom_sarvam_key");
         _repo.Verify(r => r.Update(alice), Times.Once);
@@ -189,7 +189,7 @@ public class UserServiceTests
         var result = await CreateSut().GetApiKeyStatusAsync(null, "alice@test.com");
 
         result.HasCustomKey.Should().BeTrue();
-        result.MaskedKey.Should().Be("sk_live_my_saved_key");
+        result.MaskedKey.Should().Be("sk_l************_key");
         result.Email.Should().Be("alice@test.com");
     }
 

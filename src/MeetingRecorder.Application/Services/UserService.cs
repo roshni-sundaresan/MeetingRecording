@@ -300,8 +300,7 @@ public class UserService : IUserService
     private static UserApiKeyStatusResponse BuildApiKeyStatus(User user)
     {
         var hasCustomKey = !string.IsNullOrWhiteSpace(user.CustomApiKey);
-        // Return stored API key directly in masked_key field as requested
-        var maskedKey = hasCustomKey ? user.CustomApiKey : null;
+        var maskedKey = hasCustomKey ? MaskApiKey(user.CustomApiKey) : null;
         var keySource = hasCustomKey ? "custom" : "system";
 
         return new UserApiKeyStatusResponse(
@@ -310,7 +309,19 @@ public class UserService : IUserService
             KeySource: keySource,
             IsSystemKeyConfigured: true,
             UpdatedDate: user.UpdatedDate,
-            ApiKey: user.CustomApiKey,
+            ApiKey: maskedKey,
             Email: user.Email);
+    }
+
+    private static string? MaskApiKey(string? key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            return null;
+
+        var trimmed = key.Trim();
+        if (trimmed.Length <= 8)
+            return "********";
+
+        return $"{trimmed[..4]}{new string('*', trimmed.Length - 8)}{trimmed[^4..]}";
     }
 }
