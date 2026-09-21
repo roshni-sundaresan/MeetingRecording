@@ -216,4 +216,221 @@ public class MeetingProviderClientTests
         capturedBody.Should().Contain("<h3>Summary</h3>");
         capturedBody.Should().Contain("<ul><li>Deliverables met</li><li>All tests pass</li></ul>");
     }
+
+    [Fact]
+    public async Task MicrosoftTeamsClient_RefreshAccessToken_Success_ReturnsNewToken()
+    {
+        var refreshSuccessResponse = @"{
+            ""token_type"": ""Bearer"",
+            ""scope"": ""Calendars.ReadWrite OnlineMeetings.ReadWrite offline_access"",
+            ""expires_in"": 3600,
+            ""ext_expires_in"": 3600,
+            ""access_token"": ""new-teams-access-token-999"",
+            ""refresh_token"": ""new-teams-refresh-token-888""
+        }";
+
+        string? capturedBody = null;
+        var handler = new FakeHttpMessageHandler(req =>
+        {
+            if (req.Content != null)
+            {
+                capturedBody = req.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(refreshSuccessResponse, Encoding.UTF8, "application/json")
+            };
+        });
+
+        var options = new MeetingIntegrationOptions();
+        options.MicrosoftTeams.ClientId = "test-client-id";
+        options.MicrosoftTeams.ClientSecret = "test-client-secret";
+
+        var client = new MicrosoftTeamsClient(
+            new HttpClient(handler),
+            Options.Create(options),
+            NullLogger<MicrosoftTeamsClient>.Instance);
+
+        var token = await client.RefreshAccessTokenAsync("my-old-refresh-token");
+
+        token.Should().Be("new-teams-access-token-999");
+        capturedBody.Should().NotBeNull();
+        capturedBody.Should().Contain("grant_type=refresh_token");
+        capturedBody.Should().Contain("refresh_token=my-old-refresh-token");
+        capturedBody.Should().Contain("client_id=test-client-id");
+        capturedBody.Should().Contain("client_secret=test-client-secret");
+    }
+
+    [Fact]
+    public async Task MicrosoftTeamsClient_RefreshAccessToken_Failure_ReturnsNull()
+    {
+        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.BadRequest)
+        {
+            Content = new StringContent("{\"error\":\"invalid_grant\"}", Encoding.UTF8, "application/json")
+        });
+
+        var client = new MicrosoftTeamsClient(
+            new HttpClient(handler),
+            Options.Create(new MeetingIntegrationOptions()),
+            NullLogger<MicrosoftTeamsClient>.Instance);
+
+        var token = await client.RefreshAccessTokenAsync("bad-refresh-token");
+
+        token.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GoogleMeetClient_RefreshAccessToken_Success_ReturnsNewToken()
+    {
+        var refreshSuccessResponse = @"{
+            ""access_token"": ""new-google-access-token-777"",
+            ""expires_in"": 3599,
+            ""token_type"": ""Bearer""
+        }";
+
+        string? capturedBody = null;
+        var handler = new FakeHttpMessageHandler(req =>
+        {
+            if (req.Content != null)
+            {
+                capturedBody = req.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(refreshSuccessResponse, Encoding.UTF8, "application/json")
+            };
+        });
+
+        var options = new MeetingIntegrationOptions();
+        options.Google.ClientId = "google-client-id";
+        options.Google.ClientSecret = "google-client-secret";
+
+        var client = new GoogleMeetClient(
+            new HttpClient(handler),
+            Options.Create(options),
+            NullLogger<GoogleMeetClient>.Instance);
+
+        var token = await client.RefreshAccessTokenAsync("my-google-refresh-token");
+
+        token.Should().Be("new-google-access-token-777");
+        capturedBody.Should().NotBeNull();
+        capturedBody.Should().Contain("grant_type=refresh_token");
+        capturedBody.Should().Contain("refresh_token=my-google-refresh-token");
+        capturedBody.Should().Contain("client_id=google-client-id");
+        capturedBody.Should().Contain("client_secret=google-client-secret");
+    }
+
+    [Fact]
+    public async Task GoogleMeetClient_RefreshAccessToken_Failure_ReturnsNull()
+    {
+        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.BadRequest)
+        {
+            Content = new StringContent("{\"error\":\"invalid_grant\"}", Encoding.UTF8, "application/json")
+        });
+
+        var client = new GoogleMeetClient(
+            new HttpClient(handler),
+            Options.Create(new MeetingIntegrationOptions()),
+            NullLogger<GoogleMeetClient>.Instance);
+
+        var token = await client.RefreshAccessTokenAsync("bad-refresh-token");
+
+        token.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GoogleMeetClient_ExchangeAuthCode_Success_ReturnsTokens()
+    {
+        var exchangeSuccessResponse = @"{
+            ""access_token"": ""google-access-token-123"",
+            ""expires_in"": 3599,
+            ""refresh_token"": ""google-refresh-token-456"",
+            ""scope"": ""https://www.googleapis.com/auth/calendar.events"",
+            ""token_type"": ""Bearer""
+        }";
+
+        string? capturedBody = null;
+        var handler = new FakeHttpMessageHandler(req =>
+        {
+            if (req.Content != null)
+            {
+                capturedBody = req.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(exchangeSuccessResponse, Encoding.UTF8, "application/json")
+            };
+        });
+
+        var options = new MeetingIntegrationOptions();
+        options.Google.ClientId = "google-client-id";
+        options.Google.ClientSecret = "google-client-secret";
+
+        var client = new GoogleMeetClient(
+            new HttpClient(handler),
+            Options.Create(options),
+            NullLogger<GoogleMeetClient>.Instance);
+
+        var result = await client.ExchangeAuthCodeAsync("google-one-time-code-xyz", "postmessage");
+
+        result.Should().NotBeNull();
+        result!.AccessToken.Should().Be("google-access-token-123");
+        result.RefreshToken.Should().Be("google-refresh-token-456");
+        result.ExpiresIn.Should().Be(3599);
+
+        capturedBody.Should().NotBeNull();
+        capturedBody.Should().Contain("grant_type=authorization_code");
+        capturedBody.Should().Contain("code=google-one-time-code-xyz");
+        capturedBody.Should().Contain("redirect_uri=postmessage");
+        capturedBody.Should().Contain("client_id=google-client-id");
+        capturedBody.Should().Contain("client_secret=google-client-secret");
+    }
+
+    [Fact]
+    public async Task MicrosoftTeamsClient_ExchangeAuthCode_Success_ReturnsTokens()
+    {
+        var exchangeSuccessResponse = @"{
+            ""access_token"": ""teams-access-token-123"",
+            ""expires_in"": 3600,
+            ""refresh_token"": ""teams-refresh-token-456"",
+            ""token_type"": ""Bearer""
+        }";
+
+        string? capturedBody = null;
+        var handler = new FakeHttpMessageHandler(req =>
+        {
+            if (req.Content != null)
+            {
+                capturedBody = req.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(exchangeSuccessResponse, Encoding.UTF8, "application/json")
+            };
+        });
+
+        var options = new MeetingIntegrationOptions();
+        options.MicrosoftTeams.ClientId = "ms-client-id";
+        options.MicrosoftTeams.ClientSecret = "ms-client-secret";
+
+        var client = new MicrosoftTeamsClient(
+            new HttpClient(handler),
+            Options.Create(options),
+            NullLogger<MicrosoftTeamsClient>.Instance);
+
+        var result = await client.ExchangeAuthCodeAsync("ms-one-time-code-abc", "http://localhost:8080");
+
+        result.Should().NotBeNull();
+        result!.AccessToken.Should().Be("teams-access-token-123");
+        result.RefreshToken.Should().Be("teams-refresh-token-456");
+        result.ExpiresIn.Should().Be(3600);
+
+        capturedBody.Should().NotBeNull();
+        capturedBody.Should().Contain("grant_type=authorization_code");
+        capturedBody.Should().Contain("code=ms-one-time-code-abc");
+        capturedBody.Should().Contain("redirect_uri=http%3A%2F%2Flocalhost%3A8080");
+        capturedBody.Should().Contain("client_id=ms-client-id");
+        capturedBody.Should().Contain("client_secret=ms-client-secret");
+    }
 }
+

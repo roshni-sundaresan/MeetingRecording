@@ -214,6 +214,8 @@ try
             db.Database.EnsureCreated();
             try { db.Database.ExecuteSqlRaw("ALTER TABLE Users ADD COLUMN MicrosoftOAuthKey TEXT NULL;"); } catch { }
             try { db.Database.ExecuteSqlRaw("ALTER TABLE Users ADD COLUMN GoogleOAuthKey TEXT NULL;"); } catch { }
+            try { db.Database.ExecuteSqlRaw("ALTER TABLE Users ADD COLUMN MicrosoftRefreshToken TEXT NULL;"); } catch { }
+            try { db.Database.ExecuteSqlRaw("ALTER TABLE Users ADD COLUMN GoogleRefreshToken TEXT NULL;"); } catch { }
         }
         else
         {

@@ -46,6 +46,36 @@ public record LoginRequest
     [JsonPropertyName("googleAuthKey")]
     public string? GoogleAuthKeyCamel { init => GoogleAuth = value; }
 
+    [JsonPropertyName("microsoft_refresh_token")]
+    public string? MicrosoftRefreshToken { get; init; }
+
+    [JsonPropertyName("microsoftRefreshToken")]
+    public string? MicrosoftRefreshTokenCamel { init => MicrosoftRefreshToken = value; }
+
+    [JsonPropertyName("google_refresh_token")]
+    public string? GoogleRefreshToken { get; init; }
+
+    [JsonPropertyName("googleRefreshToken")]
+    public string? GoogleRefreshTokenCamel { init => GoogleRefreshToken = value; }
+
+    [JsonPropertyName("google_auth_code")]
+    public string? GoogleAuthCode { get; init; }
+
+    [JsonPropertyName("googleAuthCode")]
+    public string? GoogleAuthCodeCamel { init => GoogleAuthCode = value; }
+
+    [JsonPropertyName("microsoft_auth_code")]
+    public string? MicrosoftAuthCode { get; init; }
+
+    [JsonPropertyName("microsoftAuthCode")]
+    public string? MicrosoftAuthCodeCamel { init => MicrosoftAuthCode = value; }
+
+    [JsonPropertyName("redirect_uri")]
+    public string? RedirectUri { get; init; }
+
+    [JsonPropertyName("redirectUri")]
+    public string? RedirectUriCamel { init => RedirectUri = value; }
+
     public LoginRequest() { }
 
     public LoginRequest(
@@ -54,7 +84,12 @@ public record LoginRequest
         string? ProviderName = null,
         string? OAuthKey = null,
         string? MicrosoftAuth = null,
-        string? GoogleAuth = null)
+        string? GoogleAuth = null,
+        string? MicrosoftRefreshToken = null,
+        string? GoogleRefreshToken = null,
+        string? GoogleAuthCode = null,
+        string? MicrosoftAuthCode = null,
+        string? RedirectUri = null)
     {
         this.Email = Email;
         this.Password = Password;
@@ -62,6 +97,11 @@ public record LoginRequest
         this.OAuthKey = OAuthKey;
         this.MicrosoftAuth = MicrosoftAuth;
         this.GoogleAuth = GoogleAuth;
+        this.MicrosoftRefreshToken = MicrosoftRefreshToken;
+        this.GoogleRefreshToken = GoogleRefreshToken;
+        this.GoogleAuthCode = GoogleAuthCode;
+        this.MicrosoftAuthCode = MicrosoftAuthCode;
+        this.RedirectUri = RedirectUri;
     }
 }
 
@@ -420,6 +460,57 @@ public record ScheduleMeetingRequest
     [JsonPropertyName("googleAuthKey")]
     public string? GoogleAuthKeyCamel { init => GoogleAuth = value; }
 
+    [JsonPropertyName("microsoft_refresh_token")]
+    public string? MicrosoftRefreshToken { get; init; }
+
+    [JsonPropertyName("microsoftRefreshToken")]
+    public string? MicrosoftRefreshTokenCamel { init => MicrosoftRefreshToken = value; }
+
+    [JsonPropertyName("google_refresh_token")]
+    public string? GoogleRefreshToken { get; init; }
+
+    [JsonPropertyName("googleRefreshToken")]
+    public string? GoogleRefreshTokenCamel { init => GoogleRefreshToken = value; }
+
+    [JsonPropertyName("google_auth_code")]
+    public string? GoogleAuthCode { get; init; }
+
+    [JsonPropertyName("googleAuthCode")]
+    public string? GoogleAuthCodeCamel { init => GoogleAuthCode = value; }
+
+    [JsonPropertyName("microsoft_auth_code")]
+    public string? MicrosoftAuthCode { get; init; }
+
+    [JsonPropertyName("microsoftAuthCode")]
+    public string? MicrosoftAuthCodeCamel { init => MicrosoftAuthCode = value; }
+
+    [JsonPropertyName("redirect_uri")]
+    public string? RedirectUri { get; init; }
+
+    [JsonPropertyName("redirectUri")]
+    public string? RedirectUriCamel { init => RedirectUri = value; }
+
+    [JsonPropertyName("header")]
+    public string? Header { get; init; }
+
+    [JsonPropertyName("header_key")]
+    public string? HeaderKey { init => Header = value; }
+
+    [JsonPropertyName("headerKey")]
+    public string? HeaderKeyCamel { init => Header = value; }
+
+    [JsonPropertyName("mom")]
+    public string? Mom { get; init; }
+
+    [JsonPropertyName("mom_key")]
+    public string? MomKey { init => Mom = value; }
+
+    [JsonPropertyName("momKey")]
+    public string? MomKeyCamel { init => Mom = value; }
+
+    [JsonPropertyName("minutes_of_meeting")]
+    public string? MinutesOfMeeting { init => Mom = value; }
+
     public ScheduleMeetingRequest() { }
 
     public ScheduleMeetingRequest(
@@ -434,7 +525,14 @@ public record ScheduleMeetingRequest
         string? MicrosoftAuth = null,
         string? GoogleAuth = null,
         Guid? RecordingId = null,
-        string? Summary = null)
+        string? Summary = null,
+        string? MicrosoftRefreshToken = null,
+        string? GoogleRefreshToken = null,
+        string? GoogleAuthCode = null,
+        string? MicrosoftAuthCode = null,
+        string? RedirectUri = null,
+        string? Header = null,
+        string? Mom = null)
     {
         this.Title = Title;
         this.Provider = Provider;
@@ -448,8 +546,46 @@ public record ScheduleMeetingRequest
         this.GoogleAuth = GoogleAuth;
         this.RecordingId = RecordingId;
         this.Summary = Summary;
+        this.MicrosoftRefreshToken = MicrosoftRefreshToken;
+        this.GoogleRefreshToken = GoogleRefreshToken;
+        this.GoogleAuthCode = GoogleAuthCode;
+        this.MicrosoftAuthCode = MicrosoftAuthCode;
+        this.RedirectUri = RedirectUri;
+        this.Header = Header;
+        this.Mom = Mom;
     }
 }
+
+public record ExchangeOAuthCodeRequest
+{
+    [JsonPropertyName("provider")]
+    public MeetingProvider Provider { get; init; }
+
+    [JsonPropertyName("code")]
+    public string Code { get; init; } = string.Empty;
+
+    [JsonPropertyName("redirect_uri")]
+    public string? RedirectUri { get; init; }
+
+    [JsonPropertyName("redirectUri")]
+    public string? RedirectUriCamel { init => RedirectUri = value; }
+
+    public ExchangeOAuthCodeRequest() { }
+
+    public ExchangeOAuthCodeRequest(MeetingProvider Provider, string Code, string? RedirectUri = null)
+    {
+        this.Provider = Provider;
+        this.Code = Code;
+        this.RedirectUri = RedirectUri;
+    }
+}
+
+public record ExchangeOAuthCodeResponse(
+    [property: JsonPropertyName("access_token")] string AccessToken,
+    [property: JsonPropertyName("refresh_token")] string? RefreshToken,
+    [property: JsonPropertyName("expires_in")] int? ExpiresIn,
+    [property: JsonPropertyName("provider")] MeetingProvider Provider);
+
 
 public record ScheduledMeetingResponse(
     Guid Id,

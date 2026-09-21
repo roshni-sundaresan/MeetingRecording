@@ -9,8 +9,15 @@ public record MeetingConferenceDetails(
     string? Passcode,
     string? ExternalMeetingId);
 
+public record OAuthTokenResult(
+    string AccessToken,
+    string? RefreshToken,
+    int? ExpiresIn);
+
 public interface IMeetingProviderClient
 {
     MeetingProvider Provider { get; }
     Task<MeetingConferenceDetails> CreateMeetingAsync(ScheduleMeetingRequest request, CancellationToken ct = default);
+    Task<string?> RefreshAccessTokenAsync(string refreshToken, CancellationToken ct = default);
+    Task<OAuthTokenResult?> ExchangeAuthCodeAsync(string authCode, string? redirectUri = null, CancellationToken ct = default);
 }

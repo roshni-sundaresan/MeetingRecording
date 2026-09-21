@@ -13,11 +13,13 @@ public class GoogleMeetingOptions
     public string ClientId { get; set; } = string.Empty;
     public string ClientSecret { get; set; } = string.Empty;
     public string ServiceAccountKeyJson { get; set; } = string.Empty;
+    public string TokenEndpoint { get; set; } = "https://oauth2.googleapis.com/token";
 }
 
 public class TeamsMeetingOptions
 {
-    public string TenantId { get; set; } = string.Empty;
+    public string TenantId { get; set; } = "common";
     public string ClientId { get; set; } = string.Empty;
     public string ClientSecret { get; set; } = string.Empty;
+    public string TokenEndpoint { get; set; } = string.Empty;
 }

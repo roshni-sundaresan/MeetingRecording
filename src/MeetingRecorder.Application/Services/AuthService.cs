@@ -57,6 +57,8 @@ public class AuthService : IAuthService
 
         var msAuth = !string.IsNullOrWhiteSpace(request.MicrosoftAuth) ? request.MicrosoftAuth.Trim() : null;
         var googleAuth = !string.IsNullOrWhiteSpace(request.GoogleAuth) ? request.GoogleAuth.Trim() : null;
+        var msRefreshToken = !string.IsNullOrWhiteSpace(request.MicrosoftRefreshToken) ? request.MicrosoftRefreshToken.Trim() : null;
+        var googleRefreshToken = !string.IsNullOrWhiteSpace(request.GoogleRefreshToken) ? request.GoogleRefreshToken.Trim() : null;
 
         if (!string.IsNullOrWhiteSpace(request.OAuthKey))
         {
@@ -70,7 +72,9 @@ public class AuthService : IAuthService
         var isOAuthLogin = !string.IsNullOrWhiteSpace(request.ProviderName) ||
                            !string.IsNullOrWhiteSpace(request.OAuthKey) ||
                            !string.IsNullOrWhiteSpace(msAuth) ||
-                           !string.IsNullOrWhiteSpace(googleAuth);
+                           !string.IsNullOrWhiteSpace(googleAuth) ||
+                           !string.IsNullOrWhiteSpace(msRefreshToken) ||
+                           !string.IsNullOrWhiteSpace(googleRefreshToken);
 
         if (isOAuthLogin)
         {
@@ -87,7 +91,9 @@ public class AuthService : IAuthService
                     ProviderName = request.ProviderName?.Trim() ?? (msAuth != null ? "teams" : (googleAuth != null ? "google" : null)),
                     OAuthKey = msAuth ?? googleAuth ?? request.OAuthKey?.Trim(),
                     MicrosoftOAuthKey = msAuth,
-                    GoogleOAuthKey = googleAuth
+                    GoogleOAuthKey = googleAuth,
+                    MicrosoftRefreshToken = msRefreshToken,
+                    GoogleRefreshToken = googleRefreshToken
                 };
                 userRepo.Add(user);
             }
@@ -104,6 +110,16 @@ public class AuthService : IAuthService
                 {
                     user.GoogleOAuthKey = googleAuth;
                     user.OAuthKey = googleAuth;
+                }
+
+                if (!string.IsNullOrWhiteSpace(msRefreshToken))
+                {
+                    user.MicrosoftRefreshToken = msRefreshToken;
+                }
+
+                if (!string.IsNullOrWhiteSpace(googleRefreshToken))
+                {
+                    user.GoogleRefreshToken = googleRefreshToken;
                 }
 
                 if (!string.IsNullOrWhiteSpace(request.OAuthKey) && string.IsNullOrWhiteSpace(msAuth) && string.IsNullOrWhiteSpace(googleAuth))
@@ -146,6 +162,18 @@ public class AuthService : IAuthService
             {
                 user.GoogleOAuthKey = googleAuth;
                 user.OAuthKey = googleAuth;
+                userModified = true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(msRefreshToken))
+            {
+                user.MicrosoftRefreshToken = msRefreshToken;
+                userModified = true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(googleRefreshToken))
+            {
+                user.GoogleRefreshToken = googleRefreshToken;
                 userModified = true;
             }
 

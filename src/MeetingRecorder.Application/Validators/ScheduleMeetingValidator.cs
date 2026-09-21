@@ -58,6 +58,27 @@ public class ScheduleMeetingValidator : AbstractValidator<ScheduleMeetingRequest
 
         RuleFor(x => x.GoogleAuth)
             .MaximumLength(8000).WithMessage("'google_auth' cannot exceed 8000 characters.");
+
+        RuleFor(x => x.MicrosoftRefreshToken)
+            .MaximumLength(8000).WithMessage("'microsoft_refresh_token' cannot exceed 8000 characters.");
+
+        RuleFor(x => x.GoogleRefreshToken)
+            .MaximumLength(8000).WithMessage("'google_refresh_token' cannot exceed 8000 characters.");
+
+        RuleFor(x => x.GoogleAuthCode)
+            .MaximumLength(8000).WithMessage("'google_auth_code' cannot exceed 8000 characters.");
+
+        RuleFor(x => x.MicrosoftAuthCode)
+            .MaximumLength(8000).WithMessage("'microsoft_auth_code' cannot exceed 8000 characters.");
+
+        RuleFor(x => x.RedirectUri)
+            .MaximumLength(2000).WithMessage("'redirect_uri' cannot exceed 2000 characters.");
+
+        RuleFor(x => x.Header)
+            .MaximumLength(15000).WithMessage("'header' cannot exceed 15000 characters.");
+
+        RuleFor(x => x.Mom)
+            .MaximumLength(15000).WithMessage("'mom' cannot exceed 15000 characters.");
     }
 
     private static bool BeValidTime(string timeStr)

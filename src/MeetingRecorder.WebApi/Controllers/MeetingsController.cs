@@ -33,11 +33,15 @@ public class MeetingsController : ApiControllerBase
     /// - **`end_time`** (string): Meeting end time in local wall-clock format (e.g., "2026-09-04T16:30:00") or ISO 8601. Must be after `start_time`.
     /// 
     /// **Optional Parameters from Front-End:**
-    /// - **`description`** (string): Meeting agenda or description notes.
+    /// - **`header`** (string, or `header_key`): Meeting header / introductory agenda note.
+    /// - **`mom`** (string, or `mom_key`): Minutes of Meeting content / action points. If provided, automatically formatted into the calendar invite under "Minutes of Meeting (MOM)".
+    /// - **`description`** (string): Meeting agenda or description notes (alias/fallback for `header`).
     /// - **`recording_id`** (GUID): Recording ID to automatically fetch its AI summary/MOM from the database and include it in the calendar invite.
-    /// - **`summary`** (string): Directly pass a meeting summary or notes to include in the Google Meet / Teams calendar invite.
+    /// - **`summary`** (string): Directly pass a meeting summary or notes to include in the Google Meet / Teams calendar invite (alias/fallback for `mom`).
     /// - **`attendees`** (string array): Participant email addresses to invite (e.g., `["alice@example.com", "bob@example.com"]`).
     /// - **`time_zone`** (string): Time zone identifier (e.g., "Asia/Kolkata", "UTC", "America/New_York"). Default: "Asia/Kolkata".
+    /// - **`google_auth_code`** (string): One-time Google GIS OAuth authorization code for server-side token exchange and auto-refresh.
+    /// - **`microsoft_auth_code`** (string): One-time Microsoft OAuth authorization code for server-side token exchange and auto-refresh.
     /// - **`provider_access_token`** (string): Delegated OAuth 2.0 access token (from Google Sign-In or Microsoft MSAL) if available in front-end client session.
     /// </remarks>
     /// <param name="request">Meeting schedule parameters.</param>
@@ -126,5 +130,23 @@ public class MeetingsController : ApiControllerBase
     {
         await _meetingSchedulerService.CancelScheduledMeetingAsync(GetUserId(), id, ct);
         return Ok("Meeting has been cancelled successfully.");
+    }
+
+    /// <summary>
+    /// Exchanges a one-time OAuth authorization code (from Google GIS initCodeClient or Microsoft Azure AD)
+    /// for an access token and refresh token, and saves them to the authenticated user profile.
+    /// </summary>
+    /// <param name="request">Provider and authorization code.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Exchanged tokens and expiry information.</returns>
+    [HttpPost("exchange-code")]
+    [ProducesResponseType(typeof(ApiResponse<ExchangeOAuthCodeResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ApiResponse<ExchangeOAuthCodeResponse>>> ExchangeCode(
+        [FromBody] ExchangeOAuthCodeRequest request, CancellationToken ct)
+    {
+        var result = await _meetingSchedulerService.ExchangeOAuthCodeAsync(GetUserId(), request, ct);
+        return Envelope(result, "OAuth code exchanged and tokens linked successfully.");
     }
 }

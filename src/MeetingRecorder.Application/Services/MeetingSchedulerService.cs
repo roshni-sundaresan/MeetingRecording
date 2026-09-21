@@ -41,9 +41,11 @@ public class MeetingSchedulerService : IMeetingSchedulerService
 
         var user = await _uow.Repository<User>().GetByIdAsync(userId, ct);
 
-        // Extract or fetch meeting summary/MOM if provided
-        var summaryToInclude = request.Summary?.Trim();
-        if (string.IsNullOrWhiteSpace(summaryToInclude) && request.RecordingId.HasValue)
+        // Extract or fetch header and meeting MOM / summary if provided
+        var headerText = !string.IsNullOrWhiteSpace(request.Header) ? request.Header.Trim() : (!string.IsNullOrWhiteSpace(request.Description) ? request.Description.Trim() : null);
+        var momText = !string.IsNullOrWhiteSpace(request.Mom) ? request.Mom.Trim() : (!string.IsNullOrWhiteSpace(request.Summary) ? request.Summary.Trim() : null);
+
+        if (string.IsNullOrWhiteSpace(momText) && request.RecordingId.HasValue)
         {
             var recordingRepo = _uow.Repository<Recording>();
             var recording = await recordingRepo.FirstOrDefaultAsync(r => r.Id == request.RecordingId.Value && !r.IsDeleted, ct)
@@ -56,8 +58,8 @@ public class MeetingSchedulerService : IMeetingSchedulerService
 
             if (!string.IsNullOrWhiteSpace(recording.Summary))
             {
-                summaryToInclude = recording.Summary.Trim();
-                _logger.LogInformation("Loaded summary from recording {RecordingId} for scheduled meeting", request.RecordingId.Value);
+                momText = recording.Summary.Trim();
+                _logger.LogInformation("Loaded MOM/summary from recording {RecordingId} for scheduled meeting", request.RecordingId.Value);
             }
             else
             {
@@ -67,34 +69,38 @@ public class MeetingSchedulerService : IMeetingSchedulerService
 
         // Build composite description with clean formatting (stripping hashtags, stars, and markdown noise)
         string? effectiveDescription;
-        if (!string.IsNullOrWhiteSpace(summaryToInclude))
+        if (!string.IsNullOrWhiteSpace(momText))
         {
-            var cleanSummary = CleanMarkdown(summaryToInclude);
-            if (!string.IsNullOrWhiteSpace(request.Description))
+            var cleanMom = CleanMarkdown(momText);
+            var momSectionTitle = !string.IsNullOrWhiteSpace(request.Mom) ? "Minutes of Meeting (MOM):" : "Meeting Summary:";
+
+            if (!string.IsNullOrWhiteSpace(headerText))
             {
-                var cleanDesc = CleanMarkdown(request.Description);
-                if (cleanDesc.Contains(cleanSummary, StringComparison.OrdinalIgnoreCase))
+                var cleanHeader = CleanMarkdown(headerText);
+                if (cleanHeader.Contains(cleanMom, StringComparison.OrdinalIgnoreCase))
                 {
-                    effectiveDescription = cleanDesc;
+                    effectiveDescription = cleanHeader;
                 }
                 else
                 {
-                    effectiveDescription = $"{cleanDesc}\n\nMeeting Summary:\n{cleanSummary}";
+                    effectiveDescription = $"{cleanHeader}\n\n{momSectionTitle}\n{cleanMom}";
                 }
             }
             else
             {
-                effectiveDescription = cleanSummary;
+                effectiveDescription = !string.IsNullOrWhiteSpace(request.Mom) && !cleanMom.StartsWith("Minutes of Meeting", StringComparison.OrdinalIgnoreCase)
+                    ? $"{momSectionTitle}\n{cleanMom}"
+                    : cleanMom;
             }
         }
         else
         {
-            effectiveDescription = CleanMarkdown(request.Description);
+            effectiveDescription = CleanMarkdown(headerText);
         }
 
         request = request with { Description = string.IsNullOrWhiteSpace(effectiveDescription) ? null : effectiveDescription };
 
-        // If MicrosoftAuth or GoogleAuth was passed in request, store/update them on user
+        // If MicrosoftAuth or GoogleAuth or RefreshTokens were passed in request, store/update them on user
         if (user != null)
         {
             var userModified = false;
@@ -105,10 +111,22 @@ public class MeetingSchedulerService : IMeetingSchedulerService
                 userModified = true;
             }
 
+            if (!string.IsNullOrWhiteSpace(request.MicrosoftRefreshToken))
+            {
+                user.MicrosoftRefreshToken = request.MicrosoftRefreshToken.Trim();
+                userModified = true;
+            }
+
             if (!string.IsNullOrWhiteSpace(request.GoogleAuth))
             {
                 user.GoogleOAuthKey = request.GoogleAuth.Trim();
                 user.OAuthKey = request.GoogleAuth.Trim();
+                userModified = true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.GoogleRefreshToken))
+            {
+                user.GoogleRefreshToken = request.GoogleRefreshToken.Trim();
                 userModified = true;
             }
 
@@ -119,6 +137,14 @@ public class MeetingSchedulerService : IMeetingSchedulerService
             }
         }
 
+        // Determine refresh token for the provider client
+        var refreshToken = request.Provider switch
+        {
+            MeetingProvider.Teams => request.MicrosoftRefreshToken ?? user?.MicrosoftRefreshToken,
+            MeetingProvider.GoogleMeet => request.GoogleRefreshToken ?? user?.GoogleRefreshToken,
+            _ => null
+        };
+
         // Determine token for the provider client
         var token = request.Provider switch
         {
@@ -126,6 +152,84 @@ public class MeetingSchedulerService : IMeetingSchedulerService
             MeetingProvider.GoogleMeet => request.GoogleAuth ?? request.ProviderAccessToken ?? user?.GoogleOAuthKey ?? user?.OAuthKey,
             _ => request.ProviderAccessToken ?? user?.OAuthKey
         };
+
+        // Check if an authorization code was passed in the request
+        var authCode = request.Provider switch
+        {
+            MeetingProvider.GoogleMeet => !string.IsNullOrWhiteSpace(request.GoogleAuthCode) ? request.GoogleAuthCode.Trim() : null,
+            MeetingProvider.Teams => !string.IsNullOrWhiteSpace(request.MicrosoftAuthCode) ? request.MicrosoftAuthCode.Trim() : null,
+            _ => null
+        };
+
+        if (!string.IsNullOrWhiteSpace(authCode))
+        {
+            _logger.LogInformation("Authorization code provided for provider {Provider}. Exchanging code for access and refresh tokens.", request.Provider);
+            var tokenResult = await client.ExchangeAuthCodeAsync(authCode, request.RedirectUri, ct);
+            if (tokenResult != null && !string.IsNullOrWhiteSpace(tokenResult.AccessToken))
+            {
+                token = tokenResult.AccessToken;
+                if (!string.IsNullOrWhiteSpace(tokenResult.RefreshToken))
+                {
+                    refreshToken = tokenResult.RefreshToken;
+                }
+
+                if (user != null)
+                {
+                    if (request.Provider == MeetingProvider.Teams)
+                    {
+                        user.MicrosoftOAuthKey = tokenResult.AccessToken;
+                        user.OAuthKey = tokenResult.AccessToken;
+                        if (!string.IsNullOrWhiteSpace(tokenResult.RefreshToken))
+                        {
+                            user.MicrosoftRefreshToken = tokenResult.RefreshToken;
+                        }
+                    }
+                    else if (request.Provider == MeetingProvider.GoogleMeet)
+                    {
+                        user.GoogleOAuthKey = tokenResult.AccessToken;
+                        user.OAuthKey = tokenResult.AccessToken;
+                        if (!string.IsNullOrWhiteSpace(tokenResult.RefreshToken))
+                        {
+                            user.GoogleRefreshToken = tokenResult.RefreshToken;
+                        }
+                    }
+                    _uow.Repository<User>().Update(user);
+                    await _uow.SaveChangesAsync(ct);
+                    _logger.LogInformation("Saved tokens from authorization code exchange to user profile {UserId}.", userId);
+                }
+            }
+            else
+            {
+                _logger.LogWarning("Failed to exchange authorization code with provider {Provider}.", request.Provider);
+                throw new AppException($"Failed to exchange authorization code for {request.Provider}. Please verify your OAuth client credentials and redirect URI.", 400, $"{request.Provider.ToString().ToUpperInvariant()}_AUTH_CODE_EXCHANGE_FAILED");
+            }
+        }
+
+        // Proactive refresh: if access token is missing but refresh token exists, fetch a fresh access token
+        if (string.IsNullOrWhiteSpace(token) && !string.IsNullOrWhiteSpace(refreshToken))
+        {
+            _logger.LogInformation("No access token provided or stored for provider {Provider}. Attempting proactive refresh with available refresh token.", request.Provider);
+            var refreshedToken = await client.RefreshAccessTokenAsync(refreshToken, ct);
+            if (!string.IsNullOrWhiteSpace(refreshedToken))
+            {
+                token = refreshedToken;
+                if (user != null)
+                {
+                    if (request.Provider == MeetingProvider.Teams)
+                    {
+                        user.MicrosoftOAuthKey = refreshedToken;
+                        user.OAuthKey = refreshedToken;
+                    }
+                    else if (request.Provider == MeetingProvider.GoogleMeet)
+                    {
+                        user.GoogleOAuthKey = refreshedToken;
+                        user.OAuthKey = refreshedToken;
+                    }
+                    _uow.Repository<User>().Update(user);
+                    await _uow.SaveChangesAsync(ct);
+                }
+            }
+        }
 
         if (!string.IsNullOrWhiteSpace(token))
         {
@@ -140,30 +244,63 @@ public class MeetingSchedulerService : IMeetingSchedulerService
         }
         catch (AppException ex) when (ex.ErrorCode is "MICROSOFT_TOKEN_EXPIRED" or "GOOGLE_TOKEN_EXPIRED")
         {
-            if (user != null)
+            _logger.LogWarning("Provider token expired ({ErrorCode}). Checking if refresh token is available for auto-refresh.", ex.ErrorCode);
+            string? newAccessToken = null;
+            if (!string.IsNullOrWhiteSpace(refreshToken))
             {
-                var userModified = false;
-                if (ex.ErrorCode == "MICROSOFT_TOKEN_EXPIRED" && !string.IsNullOrWhiteSpace(user.MicrosoftOAuthKey))
-                {
-                    user.MicrosoftOAuthKey = null;
-                    if (user.OAuthKey == token) user.OAuthKey = null;
-                    userModified = true;
-                }
-                else if (ex.ErrorCode == "GOOGLE_TOKEN_EXPIRED" && !string.IsNullOrWhiteSpace(user.GoogleOAuthKey))
-                {
-                    user.GoogleOAuthKey = null;
-                    if (user.OAuthKey == token) user.OAuthKey = null;
-                    userModified = true;
-                }
+                _logger.LogInformation("Attempting automatic OAuth token refresh for user {UserId} with provider {Provider}.", userId, request.Provider);
+                newAccessToken = await client.RefreshAccessTokenAsync(refreshToken, ct);
+            }
 
-                if (userModified)
+            if (!string.IsNullOrWhiteSpace(newAccessToken))
+            {
+                _logger.LogInformation("Token refresh successful. Updating user profile and retrying meeting creation.");
+                if (user != null)
                 {
+                    if (ex.ErrorCode == "MICROSOFT_TOKEN_EXPIRED")
+                    {
+                        user.MicrosoftOAuthKey = newAccessToken;
+                        user.OAuthKey = newAccessToken;
+                    }
+                    else
+                    {
+                        user.GoogleOAuthKey = newAccessToken;
+                        user.OAuthKey = newAccessToken;
+                    }
                     _uow.Repository<User>().Update(user);
                     await _uow.SaveChangesAsync(ct);
-                    _logger.LogInformation("Cleared expired OAuth key from user profile {UserId} for provider {Provider}", userId, request.Provider);
                 }
+
+                request = request with { ProviderAccessToken = newAccessToken };
+                details = await client.CreateMeetingAsync(request, ct);
             }
-            throw;
+            else
+            {
+                if (user != null)
+                {
+                    var userModified = false;
+                    if (ex.ErrorCode == "MICROSOFT_TOKEN_EXPIRED" && !string.IsNullOrWhiteSpace(user.MicrosoftOAuthKey))
+                    {
+                        user.MicrosoftOAuthKey = null;
+                        if (user.OAuthKey == token) user.OAuthKey = null;
+                        userModified = true;
+                    }
+                    else if (ex.ErrorCode == "GOOGLE_TOKEN_EXPIRED" && !string.IsNullOrWhiteSpace(user.GoogleOAuthKey))
+                    {
+                        user.GoogleOAuthKey = null;
+                        if (user.OAuthKey == token) user.OAuthKey = null;
+                        userModified = true;
+                    }
+
+                    if (userModified)
+                    {
+                        _uow.Repository<User>().Update(user);
+                        await _uow.SaveChangesAsync(ct);
+                        _logger.LogInformation("Cleared expired OAuth key from user profile {UserId} for provider {Provider}", userId, request.Provider);
+                    }
+                }
+                throw;
+            }
         }
 
         var dbDescription = request.Description?.Trim();
@@ -373,4 +510,55 @@ public class MeetingSchedulerService : IMeetingSchedulerService
         result = Regex.Replace(result, @"\n{3,}", "\n\n");
         return result.Trim();
     }
+
+    public async Task<ExchangeOAuthCodeResponse> ExchangeOAuthCodeAsync(
+        Guid userId, ExchangeOAuthCodeRequest request, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.Code))
+        {
+            throw new AppException("'code' is required.", 400);
+        }
+
+        var client = _meetingClients.FirstOrDefault(c => c.Provider == request.Provider)
+            ?? throw new AppException($"Meeting provider '{request.Provider}' is not supported.", 400);
+
+        var tokenResult = await client.ExchangeAuthCodeAsync(request.Code.Trim(), request.RedirectUri, ct);
+        if (tokenResult == null || string.IsNullOrWhiteSpace(tokenResult.AccessToken))
+        {
+            throw new AppException($"Failed to exchange authorization code for {request.Provider}. Please verify your OAuth client credentials and redirect URI.", 400, $"{request.Provider.ToString().ToUpperInvariant()}_AUTH_CODE_EXCHANGE_FAILED");
+        }
+
+        var user = await _uow.Repository<User>().GetByIdAsync(userId, ct);
+        if (user != null)
+        {
+            if (request.Provider == MeetingProvider.Teams)
+            {
+                user.MicrosoftOAuthKey = tokenResult.AccessToken;
+                user.OAuthKey = tokenResult.AccessToken;
+                if (!string.IsNullOrWhiteSpace(tokenResult.RefreshToken))
+                {
+                    user.MicrosoftRefreshToken = tokenResult.RefreshToken;
+                }
+            }
+            else if (request.Provider == MeetingProvider.GoogleMeet)
+            {
+                user.GoogleOAuthKey = tokenResult.AccessToken;
+                user.OAuthKey = tokenResult.AccessToken;
+                if (!string.IsNullOrWhiteSpace(tokenResult.RefreshToken))
+                {
+                    user.GoogleRefreshToken = tokenResult.RefreshToken;
+                }
+            }
+            _uow.Repository<User>().Update(user);
+            await _uow.SaveChangesAsync(ct);
+            _logger.LogInformation("Saved tokens from dedicated code exchange to user profile {UserId}.", userId);
+        }
+
+        return new ExchangeOAuthCodeResponse(
+            AccessToken: tokenResult.AccessToken,
+            RefreshToken: tokenResult.RefreshToken,
+            ExpiresIn: tokenResult.ExpiresIn,
+            Provider: request.Provider);
+    }
 }
+

@@ -9,4 +9,5 @@ public interface IMeetingSchedulerService
     Task<PagedResult<ScheduledMeetingResponse>> GetScheduledMeetingsAsync(Guid userId, QueryParameters query, CancellationToken ct = default);
     Task<ScheduledMeetingResponse> GetScheduledMeetingByIdAsync(Guid userId, Guid meetingId, CancellationToken ct = default);
     Task<bool> CancelScheduledMeetingAsync(Guid userId, Guid meetingId, CancellationToken ct = default);
+    Task<ExchangeOAuthCodeResponse> ExchangeOAuthCodeAsync(Guid userId, ExchangeOAuthCodeRequest request, CancellationToken ct = default);
 }

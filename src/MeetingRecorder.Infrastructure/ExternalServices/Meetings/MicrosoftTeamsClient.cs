@@ -414,7 +414,9 @@ public class MicrosoftTeamsClient : IMeetingProviderClient
             }
             else if (Regex.IsMatch(line, @"^\d+\.\s+") ||
                      line.Equals("Meeting Summary:", StringComparison.OrdinalIgnoreCase) ||
-                     line.Equals("Meeting Summary / MOM:", StringComparison.OrdinalIgnoreCase))
+                     line.Equals("Meeting Summary / MOM:", StringComparison.OrdinalIgnoreCase) ||
+                     line.Equals("Minutes of Meeting (MOM):", StringComparison.OrdinalIgnoreCase) ||
+                     line.StartsWith("Minutes of Meeting", StringComparison.OrdinalIgnoreCase))
             {
                 if (inList) { sb.Append("</ul>"); inList = false; }
                 sb.Append("<p><strong>").Append(FormatInline(line)).Append("</strong></p>");
@@ -446,5 +448,146 @@ public class MicrosoftTeamsClient : IMeetingProviderClient
         // Replace *italic* with <em>italic</em>
         encoded = Regex.Replace(encoded, @"\*(.+?)\*", "<em>$1</em>");
         return encoded;
+    }
+
+    public async Task<string?> RefreshAccessTokenAsync(string refreshToken, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(refreshToken))
+        {
+            return null;
+        }
+
+        var tenantId = !string.IsNullOrWhiteSpace(_options.MicrosoftTeams.TenantId)
+            ? _options.MicrosoftTeams.TenantId
+            : "common";
+
+        var endpoint = !string.IsNullOrWhiteSpace(_options.MicrosoftTeams.TokenEndpoint)
+            ? _options.MicrosoftTeams.TokenEndpoint
+            : $"https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token";
+
+        var postParams = new List<KeyValuePair<string, string>>
+        {
+            new("grant_type", "refresh_token"),
+            new("refresh_token", refreshToken),
+            new("scope", "Calendars.ReadWrite OnlineMeetings.ReadWrite offline_access")
+        };
+
+        if (!string.IsNullOrWhiteSpace(_options.MicrosoftTeams.ClientId))
+        {
+            postParams.Add(new("client_id", _options.MicrosoftTeams.ClientId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(_options.MicrosoftTeams.ClientSecret))
+        {
+            postParams.Add(new("client_secret", _options.MicrosoftTeams.ClientSecret));
+        }
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = new FormUrlEncodedContent(postParams)
+        };
+
+        try
+        {
+            var response = await _httpClient.SendAsync(req, ct);
+            var content = await response.Content.ReadAsStringAsync(ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Microsoft OAuth refresh token request failed ({StatusCode}): {Response}", response.StatusCode, content);
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(content);
+            if (doc.RootElement.TryGetProperty("access_token", out var tokenProp))
+            {
+                var newToken = tokenProp.GetString();
+                if (!string.IsNullOrWhiteSpace(newToken))
+                {
+                    _logger.LogInformation("Successfully refreshed Microsoft OAuth access token.");
+                    return newToken;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Exception occurred while attempting to refresh Microsoft OAuth access token.");
+        }
+
+        return null;
+    }
+
+    public async Task<OAuthTokenResult?> ExchangeAuthCodeAsync(string authCode, string? redirectUri = null, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(authCode))
+        {
+            return null;
+        }
+
+        var tenantId = !string.IsNullOrWhiteSpace(_options.MicrosoftTeams.TenantId)
+            ? _options.MicrosoftTeams.TenantId
+            : "common";
+
+        var endpoint = !string.IsNullOrWhiteSpace(_options.MicrosoftTeams.TokenEndpoint)
+            ? _options.MicrosoftTeams.TokenEndpoint
+            : $"https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token";
+
+        var postParams = new List<KeyValuePair<string, string>>
+        {
+            new("grant_type", "authorization_code"),
+            new("code", authCode),
+            new("scope", "Calendars.ReadWrite OnlineMeetings.ReadWrite offline_access")
+        };
+
+        if (!string.IsNullOrWhiteSpace(redirectUri))
+        {
+            postParams.Add(new("redirect_uri", redirectUri));
+        }
+
+        if (!string.IsNullOrWhiteSpace(_options.MicrosoftTeams.ClientId))
+        {
+            postParams.Add(new("client_id", _options.MicrosoftTeams.ClientId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(_options.MicrosoftTeams.ClientSecret))
+        {
+            postParams.Add(new("client_secret", _options.MicrosoftTeams.ClientSecret));
+        }
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = new FormUrlEncodedContent(postParams)
+        };
+
+        try
+        {
+            var response = await _httpClient.SendAsync(req, ct);
+            var content = await response.Content.ReadAsStringAsync(ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Microsoft OAuth authorization code exchange failed ({StatusCode}): {Response}", response.StatusCode, content);
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(content);
+            var root = doc.RootElement;
+
+            var accessToken = root.TryGetProperty("access_token", out var atProp) ? atProp.GetString() : null;
+            var refreshToken = root.TryGetProperty("refresh_token", out var rtProp) ? rtProp.GetString() : null;
+            var expiresIn = root.TryGetProperty("expires_in", out var expProp) && expProp.TryGetInt32(out var exp) ? exp : (int?)null;
+
+            if (!string.IsNullOrWhiteSpace(accessToken))
+            {
+                _logger.LogInformation("Successfully exchanged Microsoft OAuth authorization code for tokens (hasRefreshToken={HasRefresh}).", !string.IsNullOrWhiteSpace(refreshToken));
+                return new OAuthTokenResult(accessToken, refreshToken, expiresIn);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Exception occurred while attempting to exchange Microsoft OAuth authorization code.");
+        }
+
+        return null;
     }
 }

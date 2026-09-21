@@ -150,6 +150,54 @@ public class MeetingSchedulerServiceTests
     }
 
     [Fact]
+    public async Task ScheduleMeeting_WithHeaderAndMom_CombinesIntoCleanMinutesOfMeetingSection()
+    {
+        ScheduleMeetingRequest? capturedRequest = null;
+        _teamsClient.Setup(c => c.CreateMeetingAsync(It.IsAny<ScheduleMeetingRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<ScheduleMeetingRequest, CancellationToken>((req, _) => capturedRequest = req)
+            .ReturnsAsync(new MeetingConferenceDetails("https://teams.microsoft.com/meet", "123-456", "pass", "ext-1"));
+
+        var sut = CreateSut();
+        var req = new ScheduleMeetingRequest(
+            Title: "Sprint 42 Architecture",
+            Provider: MeetingProvider.Teams,
+            StartTime: "2026-09-17T10:00:00",
+            EndTime: "2026-09-17T11:00:00",
+            Header: "Sprint 42 Architecture Discussion",
+            Mom: "* Point A\n* Point B");
+
+        var result = await sut.ScheduleMeetingAsync(_userId, req);
+
+        result.Should().NotBeNull();
+        capturedRequest.Should().NotBeNull();
+        capturedRequest!.Description.Should().Be("Sprint 42 Architecture Discussion\n\nMinutes of Meeting (MOM):\n• Point A\n• Point B");
+    }
+
+    [Fact]
+    public async Task ScheduleMeeting_WithMomOnly_FormatsWithMinutesOfMeetingPrefix()
+    {
+        ScheduleMeetingRequest? capturedRequest = null;
+        _teamsClient.Setup(c => c.CreateMeetingAsync(It.IsAny<ScheduleMeetingRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<ScheduleMeetingRequest, CancellationToken>((req, _) => capturedRequest = req)
+            .ReturnsAsync(new MeetingConferenceDetails("https://teams.microsoft.com/meet", "123-456", "pass", "ext-1"));
+
+        var sut = CreateSut();
+        var req = new ScheduleMeetingRequest(
+            Title: "MOM Only Test",
+            Provider: MeetingProvider.Teams,
+            StartTime: "2026-09-17T10:00:00",
+            EndTime: "2026-09-17T11:00:00",
+            Mom: "• Action item 1\n• Action item 2");
+
+        var result = await sut.ScheduleMeetingAsync(_userId, req);
+
+        result.Should().NotBeNull();
+        capturedRequest.Should().NotBeNull();
+        capturedRequest!.Description.Should().Be("Minutes of Meeting (MOM):\n• Action item 1\n• Action item 2");
+    }
+
+
+    [Fact]
     public async Task ScheduleMeeting_RecordingNotFound_ThrowsNotFoundException()
     {
         _recRepo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<Expression<Func<Recording, bool>>>(), It.IsAny<CancellationToken>()))
@@ -197,4 +245,201 @@ public class MeetingSchedulerServiceTests
         ex.Which.StatusCode.Should().Be(403);
         ex.Which.ErrorCode.Should().Be("RECORDING_ACCESS_DENIED");
     }
+
+    [Fact]
+    public async Task ScheduleMeeting_ExpiredTokenWithRefreshToken_RefreshesTokenAndRetriesSuccessfully()
+    {
+        var user = new User
+        {
+            Id = _userId,
+            Email = "user@example.com",
+            MicrosoftOAuthKey = "expired-ms-token",
+            MicrosoftRefreshToken = "valid-ms-refresh-token"
+        };
+
+        _userRepo.Setup(r => r.GetByIdAsync(_userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        var callCount = 0;
+        _teamsClient.Setup(c => c.CreateMeetingAsync(It.IsAny<ScheduleMeetingRequest>(), It.IsAny<CancellationToken>()))
+            .Returns<ScheduleMeetingRequest, CancellationToken>((req, _) =>
+            {
+                callCount++;
+                if (callCount == 1)
+                {
+                    // First call fails with MICROSOFT_TOKEN_EXPIRED
+                    throw new AppException("Token expired", 403, "MICROSOFT_TOKEN_EXPIRED");
+                }
+                // Second call (after refresh) succeeds
+                return Task.FromResult(new MeetingConferenceDetails("https://teams.microsoft.com/retried-meet", "meet-code-99", null, "ext-id-99"));
+            });
+
+        _teamsClient.Setup(c => c.RefreshAccessTokenAsync("valid-ms-refresh-token", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("freshly-minted-ms-token");
+
+        var sut = CreateSut();
+        var req = new ScheduleMeetingRequest(
+            Title: "Token Refresh Test",
+            Provider: MeetingProvider.Teams,
+            StartTime: "2026-09-17T10:00:00",
+            EndTime: "2026-09-17T11:00:00");
+
+        var result = await sut.ScheduleMeetingAsync(_userId, req);
+
+        result.Should().NotBeNull();
+        result.JoinUrl.Should().Be("https://teams.microsoft.com/retried-meet");
+        callCount.Should().Be(2);
+
+        // User should now have the freshly refreshed token persisted
+        user.MicrosoftOAuthKey.Should().Be("freshly-minted-ms-token");
+        user.OAuthKey.Should().Be("freshly-minted-ms-token");
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public async Task ScheduleMeeting_ExpiredTokenWithoutRefreshToken_ClearsTokenAndThrowsForbidden()
+    {
+        var user = new User
+        {
+            Id = _userId,
+            Email = "user@example.com",
+            MicrosoftOAuthKey = "expired-ms-token",
+            MicrosoftRefreshToken = null
+        };
+
+        _userRepo.Setup(r => r.GetByIdAsync(_userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        _teamsClient.Setup(c => c.CreateMeetingAsync(It.IsAny<ScheduleMeetingRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new AppException("Lifetime validation failed", 403, "MICROSOFT_TOKEN_EXPIRED"));
+
+        var sut = CreateSut();
+        var req = new ScheduleMeetingRequest(
+            Title: "Token Refresh Fail Test",
+            Provider: MeetingProvider.Teams,
+            StartTime: "2026-09-17T10:00:00",
+            EndTime: "2026-09-17T11:00:00");
+
+        var act = async () => await sut.ScheduleMeetingAsync(_userId, req);
+
+        var ex = await act.Should().ThrowAsync<AppException>();
+        ex.Which.StatusCode.Should().Be(403);
+        ex.Which.ErrorCode.Should().Be("MICROSOFT_TOKEN_EXPIRED");
+
+        // Expired token should be cleared from user
+        user.MicrosoftOAuthKey.Should().BeNull();
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public async Task ScheduleMeeting_NoAccessTokenPassed_ProactivelyUsesRefreshTokenToFetchToken()
+    {
+        var user = new User
+        {
+            Id = _userId,
+            Email = "user@example.com",
+            MicrosoftOAuthKey = null,
+            MicrosoftRefreshToken = "my-proactive-refresh-token"
+        };
+
+        _userRepo.Setup(r => r.GetByIdAsync(_userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        _teamsClient.Setup(c => c.RefreshAccessTokenAsync("my-proactive-refresh-token", It.IsAny<CancellationToken>()))
+            .ReturnsAsync("proactively-acquired-token");
+
+        ScheduleMeetingRequest? capturedRequest = null;
+        _teamsClient.Setup(c => c.CreateMeetingAsync(It.IsAny<ScheduleMeetingRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<ScheduleMeetingRequest, CancellationToken>((r, _) => capturedRequest = r)
+            .ReturnsAsync(new MeetingConferenceDetails("https://teams.microsoft.com/proactive", "meet-code-pro", null, "ext-pro"));
+
+        var sut = CreateSut();
+        var req = new ScheduleMeetingRequest(
+            Title: "Proactive Refresh Test",
+            Provider: MeetingProvider.Teams,
+            StartTime: "2026-09-17T10:00:00",
+            EndTime: "2026-09-17T11:00:00");
+
+        var result = await sut.ScheduleMeetingAsync(_userId, req);
+
+        result.Should().NotBeNull();
+        capturedRequest.Should().NotBeNull();
+        capturedRequest!.ProviderAccessToken.Should().Be("proactively-acquired-token");
+        user.MicrosoftOAuthKey.Should().Be("proactively-acquired-token");
+    }
+
+    [Fact]
+    public async Task ScheduleMeeting_WithAuthCode_ExchangesCodeAndSavesTokensAndCreatesMeeting()
+    {
+        var user = new User
+        {
+            Id = _userId,
+            Email = "user@example.com"
+        };
+
+        _userRepo.Setup(r => r.GetByIdAsync(_userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        _teamsClient.Setup(c => c.ExchangeAuthCodeAsync("one-time-ms-code", "postmessage", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OAuthTokenResult("fresh-access-token", "fresh-refresh-token", 3600));
+
+        ScheduleMeetingRequest? capturedRequest = null;
+        _teamsClient.Setup(c => c.CreateMeetingAsync(It.IsAny<ScheduleMeetingRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<ScheduleMeetingRequest, CancellationToken>((r, _) => capturedRequest = r)
+            .ReturnsAsync(new MeetingConferenceDetails("https://teams.microsoft.com/from-code", "meet-code-code", null, "ext-code"));
+
+        var sut = CreateSut();
+        var req = new ScheduleMeetingRequest(
+            Title: "Auth Code Schedule Test",
+            Provider: MeetingProvider.Teams,
+            StartTime: "2026-09-17T10:00:00",
+            EndTime: "2026-09-17T11:00:00",
+            MicrosoftAuthCode: "one-time-ms-code",
+            RedirectUri: "postmessage");
+
+        var result = await sut.ScheduleMeetingAsync(_userId, req);
+
+        result.Should().NotBeNull();
+        capturedRequest.Should().NotBeNull();
+        capturedRequest!.ProviderAccessToken.Should().Be("fresh-access-token");
+
+        user.MicrosoftOAuthKey.Should().Be("fresh-access-token");
+        user.MicrosoftRefreshToken.Should().Be("fresh-refresh-token");
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public async Task ExchangeOAuthCodeAsync_DedicatedEndpoint_ExchangesCodeAndSavesToUser()
+    {
+        var user = new User
+        {
+            Id = _userId,
+            Email = "user@example.com"
+        };
+
+        _userRepo.Setup(r => r.GetByIdAsync(_userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+
+        _teamsClient.Setup(c => c.ExchangeAuthCodeAsync("dedicated-code-xyz", "http://localhost:8080", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OAuthTokenResult("dedicated-access-token", "dedicated-refresh-token", 3600));
+
+        var sut = CreateSut();
+        var req = new ExchangeOAuthCodeRequest(
+            Provider: MeetingProvider.Teams,
+            Code: "dedicated-code-xyz",
+            RedirectUri: "http://localhost:8080");
+
+        var result = await sut.ExchangeOAuthCodeAsync(_userId, req);
+
+        result.Should().NotBeNull();
+        result.AccessToken.Should().Be("dedicated-access-token");
+        result.RefreshToken.Should().Be("dedicated-refresh-token");
+        result.ExpiresIn.Should().Be(3600);
+
+        user.MicrosoftOAuthKey.Should().Be("dedicated-access-token");
+        user.MicrosoftRefreshToken.Should().Be("dedicated-refresh-token");
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+    }
 }
+
+

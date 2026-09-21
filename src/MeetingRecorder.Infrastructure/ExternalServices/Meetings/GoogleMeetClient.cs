@@ -219,4 +219,133 @@ public class GoogleMeetClient : IMeetingProviderClient
         }
         return defaultMsg;
     }
+
+    public async Task<string?> RefreshAccessTokenAsync(string refreshToken, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(refreshToken))
+        {
+            return null;
+        }
+
+        var endpoint = !string.IsNullOrWhiteSpace(_options.Google.TokenEndpoint)
+            ? _options.Google.TokenEndpoint
+            : "https://oauth2.googleapis.com/token";
+
+        var postParams = new List<KeyValuePair<string, string>>
+        {
+            new("grant_type", "refresh_token"),
+            new("refresh_token", refreshToken)
+        };
+
+        if (!string.IsNullOrWhiteSpace(_options.Google.ClientId))
+        {
+            postParams.Add(new("client_id", _options.Google.ClientId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(_options.Google.ClientSecret))
+        {
+            postParams.Add(new("client_secret", _options.Google.ClientSecret));
+        }
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = new FormUrlEncodedContent(postParams)
+        };
+
+        try
+        {
+            var response = await _httpClient.SendAsync(req, ct);
+            var content = await response.Content.ReadAsStringAsync(ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Google OAuth refresh token request failed ({StatusCode}): {Response}", response.StatusCode, content);
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(content);
+            if (doc.RootElement.TryGetProperty("access_token", out var tokenProp))
+            {
+                var newToken = tokenProp.GetString();
+                if (!string.IsNullOrWhiteSpace(newToken))
+                {
+                    _logger.LogInformation("Successfully refreshed Google OAuth access token.");
+                    return newToken;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Exception occurred while attempting to refresh Google OAuth access token.");
+        }
+
+        return null;
+    }
+
+    public async Task<OAuthTokenResult?> ExchangeAuthCodeAsync(string authCode, string? redirectUri = null, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(authCode))
+        {
+            return null;
+        }
+
+        var endpoint = !string.IsNullOrWhiteSpace(_options.Google.TokenEndpoint)
+            ? _options.Google.TokenEndpoint
+            : "https://oauth2.googleapis.com/token";
+
+        var effectiveRedirectUri = !string.IsNullOrWhiteSpace(redirectUri) ? redirectUri : "postmessage";
+
+        var postParams = new List<KeyValuePair<string, string>>
+        {
+            new("grant_type", "authorization_code"),
+            new("code", authCode),
+            new("redirect_uri", effectiveRedirectUri)
+        };
+
+        if (!string.IsNullOrWhiteSpace(_options.Google.ClientId))
+        {
+            postParams.Add(new("client_id", _options.Google.ClientId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(_options.Google.ClientSecret))
+        {
+            postParams.Add(new("client_secret", _options.Google.ClientSecret));
+        }
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = new FormUrlEncodedContent(postParams)
+        };
+
+        try
+        {
+            var response = await _httpClient.SendAsync(req, ct);
+            var content = await response.Content.ReadAsStringAsync(ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Google OAuth authorization code exchange failed ({StatusCode}): {Response}", response.StatusCode, content);
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(content);
+            var root = doc.RootElement;
+
+            var accessToken = root.TryGetProperty("access_token", out var atProp) ? atProp.GetString() : null;
+            var refreshToken = root.TryGetProperty("refresh_token", out var rtProp) ? rtProp.GetString() : null;
+            var expiresIn = root.TryGetProperty("expires_in", out var expProp) && expProp.TryGetInt32(out var exp) ? exp : (int?)null;
+
+            if (!string.IsNullOrWhiteSpace(accessToken))
+            {
+                _logger.LogInformation("Successfully exchanged Google OAuth authorization code for tokens (hasRefreshToken={HasRefresh}).", !string.IsNullOrWhiteSpace(refreshToken));
+                return new OAuthTokenResult(accessToken, refreshToken, expiresIn);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Exception occurred while attempting to exchange Google OAuth authorization code.");
+        }
+
+        return null;
+    }
 }
