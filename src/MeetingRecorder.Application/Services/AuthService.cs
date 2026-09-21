@@ -3,6 +3,7 @@ using MeetingRecorder.Application.Exceptions;
 using MeetingRecorder.Application.Interfaces;
 using MeetingRecorder.Domain.Constants;
 using MeetingRecorder.Domain.Entities;
+using MeetingRecorder.Domain.Enums;
 using Microsoft.Extensions.Options;
 
 namespace MeetingRecorder.Application.Services;
@@ -33,13 +34,15 @@ public class AuthService : IAuthService
     private readonly IOtpService _otpService;
     private readonly IEmailService _emailService;
     private readonly PasswordResetOptions _resetOptions;
+    private readonly IEnumerable<IMeetingProviderClient>? _meetingClients;
 
     /// Refresh tokens are single-use and rotate on every refresh; lifetime is
     /// 7 days (mirrors Jwt:RefreshExpiryDays in appsettings).
     private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(7);
 
     public AuthService(IUnitOfWork uow, ITokenService tokenService, IPasswordHasher passwordHasher,
-        IOtpService otpService, IEmailService emailService, IOptions<PasswordResetOptions> resetOptions)
+        IOtpService otpService, IEmailService emailService, IOptions<PasswordResetOptions> resetOptions,
+        IEnumerable<IMeetingProviderClient>? meetingClients = null)
     {
         _uow = uow;
         _tokenService = tokenService;
@@ -47,6 +50,7 @@ public class AuthService : IAuthService
         _otpService = otpService;
         _emailService = emailService;
         _resetOptions = resetOptions.Value;
+        _meetingClients = meetingClients;
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken ct = default)
@@ -59,6 +63,43 @@ public class AuthService : IAuthService
         var googleAuth = !string.IsNullOrWhiteSpace(request.GoogleAuth) ? request.GoogleAuth.Trim() : null;
         var msRefreshToken = !string.IsNullOrWhiteSpace(request.MicrosoftRefreshToken) ? request.MicrosoftRefreshToken.Trim() : null;
         var googleRefreshToken = !string.IsNullOrWhiteSpace(request.GoogleRefreshToken) ? request.GoogleRefreshToken.Trim() : null;
+        var googleAuthCode = !string.IsNullOrWhiteSpace(request.GoogleAuthCode) ? request.GoogleAuthCode.Trim() : null;
+        var msAuthCode = !string.IsNullOrWhiteSpace(request.MicrosoftAuthCode) ? request.MicrosoftAuthCode.Trim() : null;
+
+        // If authorization codes are provided, exchange them for access and refresh tokens
+        if (!string.IsNullOrWhiteSpace(googleAuthCode) && _meetingClients != null)
+        {
+            var googleClient = _meetingClients.FirstOrDefault(c => c.Provider == MeetingProvider.GoogleMeet);
+            if (googleClient != null)
+            {
+                var tokenResult = await googleClient.ExchangeAuthCodeAsync(googleAuthCode, request.RedirectUri, ct);
+                if (tokenResult != null && !string.IsNullOrWhiteSpace(tokenResult.AccessToken))
+                {
+                    googleAuth = tokenResult.AccessToken;
+                    if (!string.IsNullOrWhiteSpace(tokenResult.RefreshToken))
+                    {
+                        googleRefreshToken = tokenResult.RefreshToken;
+                    }
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(msAuthCode) && _meetingClients != null)
+        {
+            var msClient = _meetingClients.FirstOrDefault(c => c.Provider == MeetingProvider.Teams);
+            if (msClient != null)
+            {
+                var tokenResult = await msClient.ExchangeAuthCodeAsync(msAuthCode, request.RedirectUri, ct);
+                if (tokenResult != null && !string.IsNullOrWhiteSpace(tokenResult.AccessToken))
+                {
+                    msAuth = tokenResult.AccessToken;
+                    if (!string.IsNullOrWhiteSpace(tokenResult.RefreshToken))
+                    {
+                        msRefreshToken = tokenResult.RefreshToken;
+                    }
+                }
+            }
+        }
 
         if (!string.IsNullOrWhiteSpace(request.OAuthKey))
         {
@@ -74,7 +115,9 @@ public class AuthService : IAuthService
                            !string.IsNullOrWhiteSpace(msAuth) ||
                            !string.IsNullOrWhiteSpace(googleAuth) ||
                            !string.IsNullOrWhiteSpace(msRefreshToken) ||
-                           !string.IsNullOrWhiteSpace(googleRefreshToken);
+                           !string.IsNullOrWhiteSpace(googleRefreshToken) ||
+                           !string.IsNullOrWhiteSpace(googleAuthCode) ||
+                           !string.IsNullOrWhiteSpace(msAuthCode);
 
         if (isOAuthLogin)
         {
@@ -88,7 +131,7 @@ public class AuthService : IAuthService
                     Mobile = string.Empty,
                     PasswordHash = _passwordHasher.Hash(Guid.NewGuid().ToString("N")),
                     Role = Roles.User,
-                    ProviderName = request.ProviderName?.Trim() ?? (msAuth != null ? "teams" : (googleAuth != null ? "google" : null)),
+                    ProviderName = request.ProviderName?.Trim() ?? (msAuth != null || msAuthCode != null ? "teams" : (googleAuth != null || googleAuthCode != null ? "google" : null)),
                     OAuthKey = msAuth ?? googleAuth ?? request.OAuthKey?.Trim(),
                     MicrosoftOAuthKey = msAuth,
                     GoogleOAuthKey = googleAuth,
