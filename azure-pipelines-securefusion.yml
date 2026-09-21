@@ -1,0 +1,28 @@
+trigger:
+  branches:
+    include:
+      - main
+
+schedules:
+  - cron: '30 3 * * 3,5'
+    displayName: 'Twice Weekly Security Scan - Wed & Fri 9AM IST'
+    branches:
+      include:
+        - main
+    always: true
+
+resources:
+  repositories:
+    - repository: central
+      type: git
+      name: 'Devops/Devops'
+      endpoint: 'SecureFusion'
+      ref: main
+pool:
+  name: 'Default'
+  demands: 'Agent.Name -equals Securefusionagent'
+
+extends:
+  template: azure-pipelines.yml@central
+  parameters:
+    emailTo: 'webmaster@idealake.com'
