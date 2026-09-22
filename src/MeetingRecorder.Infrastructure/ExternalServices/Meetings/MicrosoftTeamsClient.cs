@@ -465,36 +465,50 @@ public class MicrosoftTeamsClient : IMeetingProviderClient
             ? _options.MicrosoftTeams.TokenEndpoint
             : $"https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token";
 
-        var postParams = new List<KeyValuePair<string, string>>
+        async Task<(bool Success, string Content)> SendRefreshRequestAsync(bool includeSecret)
         {
-            new("grant_type", "refresh_token"),
-            new("refresh_token", refreshToken),
-            new("scope", "Calendars.ReadWrite OnlineMeetings.ReadWrite offline_access")
-        };
+            var postParams = new List<KeyValuePair<string, string>>
+            {
+                new("grant_type", "refresh_token"),
+                new("refresh_token", refreshToken),
+                new("scope", "Calendars.ReadWrite OnlineMeetings.ReadWrite offline_access")
+            };
 
-        if (!string.IsNullOrWhiteSpace(_options.MicrosoftTeams.ClientId))
-        {
-            postParams.Add(new("client_id", _options.MicrosoftTeams.ClientId));
+            if (!string.IsNullOrWhiteSpace(_options.MicrosoftTeams.ClientId))
+            {
+                postParams.Add(new("client_id", _options.MicrosoftTeams.ClientId));
+            }
+
+            if (includeSecret && !string.IsNullOrWhiteSpace(_options.MicrosoftTeams.ClientSecret))
+            {
+                postParams.Add(new("client_secret", _options.MicrosoftTeams.ClientSecret));
+            }
+
+            using var req = new HttpRequestMessage(HttpMethod.Post, endpoint)
+            {
+                Content = new FormUrlEncodedContent(postParams)
+            };
+            req.Headers.TryAddWithoutValidation("Origin", "http://localhost:8080");
+
+            var response = await _httpClient.SendAsync(req, ct);
+            var content = await response.Content.ReadAsStringAsync(ct);
+            return (response.IsSuccessStatusCode, content);
         }
-
-        if (!string.IsNullOrWhiteSpace(_options.MicrosoftTeams.ClientSecret))
-        {
-            postParams.Add(new("client_secret", _options.MicrosoftTeams.ClientSecret));
-        }
-
-        using var req = new HttpRequestMessage(HttpMethod.Post, endpoint)
-        {
-            Content = new FormUrlEncodedContent(postParams)
-        };
 
         try
         {
-            var response = await _httpClient.SendAsync(req, ct);
-            var content = await response.Content.ReadAsStringAsync(ct);
+            var (success, content) = await SendRefreshRequestAsync(includeSecret: !string.IsNullOrWhiteSpace(_options.MicrosoftTeams.ClientSecret));
 
-            if (!response.IsSuccessStatusCode)
+            // If Microsoft returns AADSTS700025 (client is public so client_secret should not be presented), retry without secret
+            if (!success && content.Contains("AADSTS700025"))
             {
-                _logger.LogWarning("Microsoft OAuth refresh token request failed ({StatusCode}): {Response}", response.StatusCode, content);
+                _logger.LogInformation("Azure App is configured as a public SPA client; retrying refresh without client_secret.");
+                (success, content) = await SendRefreshRequestAsync(includeSecret: false);
+            }
+
+            if (!success)
+            {
+                _logger.LogWarning("Microsoft OAuth refresh token request failed: {Response}", content);
                 return null;
             }
 
@@ -532,41 +546,55 @@ public class MicrosoftTeamsClient : IMeetingProviderClient
             ? _options.MicrosoftTeams.TokenEndpoint
             : $"https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token";
 
-        var postParams = new List<KeyValuePair<string, string>>
+        async Task<(bool Success, string Content)> SendExchangeRequestAsync(bool includeSecret)
         {
-            new("grant_type", "authorization_code"),
-            new("code", authCode),
-            new("scope", "Calendars.ReadWrite OnlineMeetings.ReadWrite offline_access")
-        };
+            var postParams = new List<KeyValuePair<string, string>>
+            {
+                new("grant_type", "authorization_code"),
+                new("code", authCode),
+                new("scope", "Calendars.ReadWrite OnlineMeetings.ReadWrite offline_access")
+            };
 
-        if (!string.IsNullOrWhiteSpace(redirectUri))
-        {
-            postParams.Add(new("redirect_uri", redirectUri));
+            if (!string.IsNullOrWhiteSpace(redirectUri))
+            {
+                postParams.Add(new("redirect_uri", redirectUri));
+            }
+
+            if (!string.IsNullOrWhiteSpace(_options.MicrosoftTeams.ClientId))
+            {
+                postParams.Add(new("client_id", _options.MicrosoftTeams.ClientId));
+            }
+
+            if (includeSecret && !string.IsNullOrWhiteSpace(_options.MicrosoftTeams.ClientSecret))
+            {
+                postParams.Add(new("client_secret", _options.MicrosoftTeams.ClientSecret));
+            }
+
+            using var req = new HttpRequestMessage(HttpMethod.Post, endpoint)
+            {
+                Content = new FormUrlEncodedContent(postParams)
+            };
+            req.Headers.TryAddWithoutValidation("Origin", "http://localhost:8080");
+
+            var response = await _httpClient.SendAsync(req, ct);
+            var content = await response.Content.ReadAsStringAsync(ct);
+            return (response.IsSuccessStatusCode, content);
         }
-
-        if (!string.IsNullOrWhiteSpace(_options.MicrosoftTeams.ClientId))
-        {
-            postParams.Add(new("client_id", _options.MicrosoftTeams.ClientId));
-        }
-
-        if (!string.IsNullOrWhiteSpace(_options.MicrosoftTeams.ClientSecret))
-        {
-            postParams.Add(new("client_secret", _options.MicrosoftTeams.ClientSecret));
-        }
-
-        using var req = new HttpRequestMessage(HttpMethod.Post, endpoint)
-        {
-            Content = new FormUrlEncodedContent(postParams)
-        };
 
         try
         {
-            var response = await _httpClient.SendAsync(req, ct);
-            var content = await response.Content.ReadAsStringAsync(ct);
+            var (success, content) = await SendExchangeRequestAsync(includeSecret: !string.IsNullOrWhiteSpace(_options.MicrosoftTeams.ClientSecret));
 
-            if (!response.IsSuccessStatusCode)
+            // If Microsoft returns AADSTS700025 (client is public so client_secret should not be presented), retry without secret
+            if (!success && content.Contains("AADSTS700025"))
             {
-                _logger.LogWarning("Microsoft OAuth authorization code exchange failed ({StatusCode}): {Response}", response.StatusCode, content);
+                _logger.LogInformation("Azure App is configured as a public SPA client; retrying code exchange without client_secret.");
+                (success, content) = await SendExchangeRequestAsync(includeSecret: false);
+            }
+
+            if (!success)
+            {
+                _logger.LogWarning("Microsoft OAuth authorization code exchange failed: {Response}", content);
                 return null;
             }
 
@@ -585,7 +613,7 @@ public class MicrosoftTeamsClient : IMeetingProviderClient
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Exception occurred while attempting to exchange Microsoft OAuth authorization code.");
+            _logger.LogWarning(ex, "Exception occurred while exchanging Microsoft OAuth authorization code.");
         }
 
         return null;
