@@ -74,6 +74,36 @@ public class LoginRequestInput : EncryptedPayloadRequest
 
     [JsonPropertyName("googleAuthKey")]
     public string? GoogleAuthKeyCamel { set => GoogleAuth = value; }
+
+    [JsonPropertyName("microsoft_refresh_token")]
+    public string? MicrosoftRefreshToken { get; set; }
+
+    [JsonPropertyName("microsoftRefreshToken")]
+    public string? MicrosoftRefreshTokenCamel { set => MicrosoftRefreshToken = value; }
+
+    [JsonPropertyName("google_refresh_token")]
+    public string? GoogleRefreshToken { get; set; }
+
+    [JsonPropertyName("googleRefreshToken")]
+    public string? GoogleRefreshTokenCamel { set => GoogleRefreshToken = value; }
+
+    [JsonPropertyName("google_auth_code")]
+    public string? GoogleAuthCode { get; set; }
+
+    [JsonPropertyName("googleAuthCode")]
+    public string? GoogleAuthCodeCamel { set => GoogleAuthCode = value; }
+
+    [JsonPropertyName("microsoft_auth_code")]
+    public string? MicrosoftAuthCode { get; set; }
+
+    [JsonPropertyName("microsoftAuthCode")]
+    public string? MicrosoftAuthCodeCamel { set => MicrosoftAuthCode = value; }
+
+    [JsonPropertyName("redirect_uri")]
+    public string? RedirectUri { get; set; }
+
+    [JsonPropertyName("redirectUri")]
+    public string? RedirectUriCamel { set => RedirectUri = value; }
 }
 
 public class RegisterRequestInput : EncryptedPayloadRequest

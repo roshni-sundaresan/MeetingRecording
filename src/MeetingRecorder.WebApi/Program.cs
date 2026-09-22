@@ -220,6 +220,10 @@ try
         else
         {
             db.Database.Migrate();
+            try { db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'MicrosoftOAuthKey') ALTER TABLE Users ADD MicrosoftOAuthKey NVARCHAR(MAX) NULL;"); } catch { }
+            try { db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'GoogleOAuthKey') ALTER TABLE Users ADD GoogleOAuthKey NVARCHAR(MAX) NULL;"); } catch { }
+            try { db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'MicrosoftRefreshToken') ALTER TABLE Users ADD MicrosoftRefreshToken NVARCHAR(MAX) NULL;"); } catch { }
+            try { db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'GoogleRefreshToken') ALTER TABLE Users ADD GoogleRefreshToken NVARCHAR(MAX) NULL;"); } catch { }
         }
         if (builder.Configuration.GetValue<bool>("Database:SeedOnStartup"))
         {

@@ -55,7 +55,12 @@ public class AuthController : ApiControllerBase
                 input.ProviderName,
                 input.OAuthKey,
                 input.MicrosoftAuth,
-                input.GoogleAuth);
+                input.GoogleAuth,
+                input.MicrosoftRefreshToken,
+                input.GoogleRefreshToken,
+                input.GoogleAuthCode,
+                input.MicrosoftAuthCode,
+                input.RedirectUri);
         }
 
         await ValidateAsync(request, ct);
