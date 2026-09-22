@@ -1,0 +1,26 @@
+trigger:
+- dev
+
+resources:
+- repo: self
+
+pool:
+  name: 'Default'
+  demands: 'Agent.Name -equals deploy'
+
+stages:
+  - stage: Deploy
+    displayName: 'Build & Run Docker Compose'
+    jobs:
+      - job: RunCompose
+        displayName: 'Docker Compose Up'
+        steps:
+          - script: |
+              echo "Stopping any existing containers..."
+              docker compose down 
+            displayName: 'Docker Compose Down (Cleanup)'
+
+          - script: |
+              echo "Building and starting services..."
+              docker compose --env-file /etc/meetings-api.env up -d --build
+            displayName: 'Docker Compose Up'
