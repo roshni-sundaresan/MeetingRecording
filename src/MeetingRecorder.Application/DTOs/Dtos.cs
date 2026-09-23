@@ -380,6 +380,22 @@ public record UpdateRecordingRequest(string? Title, RecordingType? Type, TimeSpa
 
 public record BookmarkRequest(bool Bookmarked);
 
+public record RenameSpeakersRequest
+{
+    public Dictionary<string, string>? Speakers { get; init; }
+    public string? From { get; init; }
+    public string? To { get; init; }
+
+    public RenameSpeakersRequest() { }
+
+    public RenameSpeakersRequest(Dictionary<string, string>? Speakers = null, string? From = null, string? To = null)
+    {
+        this.Speakers = Speakers;
+        this.From = From;
+        this.To = To;
+    }
+}
+
 // ---------- Batch fetch & playback ----------
 public record BatchRecordingsRequest(IReadOnlyList<Guid> Ids);
 

@@ -150,6 +150,75 @@ public class RecordingServiceTests
         dup.Should().BeEmpty();   // duplicates deduped; no crash
     }
 
+    [Fact]
+    public async Task RenameSpeakers_WithSpeakersMap_RenamesSpeakersInTranscriptAndSummary()
+    {
+        var rec = NewRecording("Meeting with Speakers", UserId);
+        var lines = new List<TranscriptLineDto>
+        {
+            new("Speaker 0", "Hello everyone", 0),
+            new("Speaker 1", "Hey there, ready to begin", 5),
+            new("Speaker 0", "Let's review the roadmap", 10)
+        };
+        rec.Transcript = StructuredContent.ToJson(lines);
+        rec.Summary = "Speaker 0 opened the meeting. Speaker 1 confirmed readiness.";
+
+        _recRepo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<Recording, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(rec);
+
+        var request = new RenameSpeakersRequest(new Dictionary<string, string>
+        {
+            { "Speaker 0", "Ranveer" },
+            { "Speaker 1", "Alia" }
+        });
+
+        var result = await CreateSut().RenameSpeakersAsync(rec.Id, request);
+
+        result.Transcript.Should().HaveCount(3);
+        result.Transcript![0].Speaker.Should().Be("Ranveer");
+        result.Transcript[1].Speaker.Should().Be("Alia");
+        result.Transcript[2].Speaker.Should().Be("Ranveer");
+
+        result.Summary.Should().Be("Ranveer opened the meeting. Alia confirmed readiness.");
+        _recRepo.Verify(r => r.Update(rec), Times.Once);
+        _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RenameSpeakers_WithFromAndTo_RenamesSingleSpeaker()
+    {
+        var rec = NewRecording("Single Speaker Rename", UserId);
+        var lines = new List<TranscriptLineDto>
+        {
+            new("Speaker 0", "Opening thoughts", 0),
+            new("Speaker 1", "Feedback", 4)
+        };
+        rec.Transcript = StructuredContent.ToJson(lines);
+        rec.Summary = "Speaker 0 shared thoughts.";
+
+        _recRepo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<Recording, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(rec);
+
+        var request = new RenameSpeakersRequest(From: "Speaker 0", To: "Ranveer");
+
+        var result = await CreateSut().RenameSpeakersAsync(rec.Id, request);
+
+        result.Transcript![0].Speaker.Should().Be("Ranveer");
+        result.Transcript[1].Speaker.Should().Be("Speaker 1");
+        result.Summary.Should().Be("Ranveer shared thoughts.");
+    }
+
+    [Fact]
+    public async Task RenameSpeakers_WhenRecordingNotFound_ThrowsNotFound()
+    {
+        _recRepo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<Recording, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Recording?)null);
+
+        var act = () => CreateSut().RenameSpeakersAsync(Guid.NewGuid(), new RenameSpeakersRequest(From: "Speaker 0", To: "Ranveer"));
+
+        await act.Should().ThrowAsync<NotFoundException>();
+    }
+
     private static Recording NewRecording(string title, Guid userId) => new()
     {
         Id = Guid.NewGuid(),

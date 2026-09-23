@@ -188,6 +188,25 @@ public class RecordingsController : ApiControllerBase
         return Envelope(await _recordingService.UpdateRecordingAsync(id, request, ct), "Recording updated.");
     }
 
+    /// <summary>
+    /// Rename speakers across the transcript and summary of a recording.
+    /// Owner or admin. Accepts both PATCH and POST.
+    /// </summary>
+    [HttpPatch("{id:guid}/speakers")]
+    [HttpPost("{id:guid}/speakers")]
+    [ProducesResponseType(typeof(ApiResponse<RecordingResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<RecordingResponse>>> RenameSpeakers(
+        Guid id, [FromBody] RenameSpeakersRequest request, CancellationToken ct)
+    {
+        var existing = await _recordingService.GetRecordingAsync(id, ct);
+        AccessPolicies.EnsureCanActOnUser(CurrentUser, existing.UserId);
+        await ValidateAsync(request, ct);
+        var result = await _recordingService.RenameSpeakersAsync(id, request, ct);
+        return Envelope(result, "Speakers renamed successfully.");
+    }
+
     /// <summary>Bookmark / un-bookmark. Owner or admin.</summary>
     [HttpPatch("{id:guid}/bookmark")]
     public async Task<ActionResult<ApiResponse<RecordingResponse>>> SetBookmark(Guid id, [FromBody] BookmarkRequest request, CancellationToken ct)

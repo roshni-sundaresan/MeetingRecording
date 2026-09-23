@@ -87,3 +87,24 @@ public class BatchRecordingsValidator : AbstractValidator<DTOs.BatchRecordingsRe
         RuleForEach(x => x.Ids).NotEmpty();
     }
 }
+
+public class RenameSpeakersValidator : AbstractValidator<DTOs.RenameSpeakersRequest>
+{
+    public RenameSpeakersValidator()
+    {
+        RuleFor(x => x)
+            .Must(x => (x.Speakers != null && x.Speakers.Count > 0) || (!string.IsNullOrWhiteSpace(x.From) && !string.IsNullOrWhiteSpace(x.To)))
+            .WithMessage("At least one speaker name mapping must be provided.");
+
+        RuleForEach(x => x.Speakers)
+            .ChildRules(kvp =>
+            {
+                kvp.RuleFor(x => x.Key).NotEmpty().MaximumLength(200);
+                kvp.RuleFor(x => x.Value).NotEmpty().MaximumLength(200);
+            })
+            .When(x => x.Speakers != null);
+
+        RuleFor(x => x.From).MaximumLength(200).When(x => !string.IsNullOrWhiteSpace(x.From));
+        RuleFor(x => x.To).MaximumLength(200).When(x => !string.IsNullOrWhiteSpace(x.To));
+    }
+}

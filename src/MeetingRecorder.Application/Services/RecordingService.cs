@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using AutoMapper;
 using MeetingRecorder.Application.DTOs;
 using MeetingRecorder.Application.DTOs.Common;
@@ -18,6 +19,7 @@ public interface IRecordingService
     Task<IReadOnlyList<RecordingResponse>> GetRecordingsByIdsAsync(Guid? requesterUserId, IReadOnlyList<Guid> ids, CancellationToken ct = default);
     Task<RecordingResponse> CreateRecordingAsync(CreateRecordingRequest request, CancellationToken ct = default);
     Task<RecordingResponse> UpdateRecordingAsync(Guid id, UpdateRecordingRequest request, CancellationToken ct = default);
+    Task<RecordingResponse> RenameSpeakersAsync(Guid id, RenameSpeakersRequest request, CancellationToken ct = default);
     Task<RecordingResponse> SetBookmarkAsync(Guid id, bool bookmarked, CancellationToken ct = default);
     Task DeleteRecordingAsync(Guid id, CancellationToken ct = default);
 }
@@ -260,6 +262,72 @@ public class RecordingService : IRecordingService
         rec.UpdatedDate = DateTime.UtcNow;
         _uow.Repository<Recording>().Update(rec);
         await _uow.SaveChangesAsync(ct);
+        return _mapper.Map<RecordingResponse>(rec);
+    }
+
+    public async Task<RecordingResponse> RenameSpeakersAsync(Guid id, RenameSpeakersRequest request, CancellationToken ct = default)
+    {
+        var rec = await _uow.Repository<Recording>().FirstOrDefaultAsync(r => r.Id == id && !r.IsDeleted, ct)
+            ?? throw new NotFoundException(nameof(Recording), id);
+
+        var mappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (request.Speakers != null)
+        {
+            foreach (var (oldName, newName) in request.Speakers)
+            {
+                if (!string.IsNullOrWhiteSpace(oldName) && !string.IsNullOrWhiteSpace(newName))
+                {
+                    mappings[oldName.Trim()] = newName.Trim();
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.From) && !string.IsNullOrWhiteSpace(request.To))
+        {
+            mappings[request.From.Trim()] = request.To.Trim();
+        }
+
+        if (mappings.Count == 0)
+        {
+            return _mapper.Map<RecordingResponse>(rec);
+        }
+
+        // 1. Update Transcript lines
+        if (!string.IsNullOrWhiteSpace(rec.Transcript))
+        {
+            var lines = StructuredContent.FromJson<TranscriptLineDto>(rec.Transcript);
+            if (lines.Count > 0)
+            {
+                var updatedLines = lines.Select(line =>
+                {
+                    if (!string.IsNullOrWhiteSpace(line.Speaker) && mappings.TryGetValue(line.Speaker.Trim(), out var newSpeaker))
+                    {
+                        return line with { Speaker = newSpeaker };
+                    }
+                    return line;
+                }).ToList();
+
+                rec.Transcript = StructuredContent.ToJson(updatedLines);
+            }
+        }
+
+        // 2. Update Summary if present
+        if (!string.IsNullOrWhiteSpace(rec.Summary))
+        {
+            var updatedSummary = rec.Summary;
+            foreach (var (oldName, newName) in mappings)
+            {
+                var pattern = $@"\b{Regex.Escape(oldName)}\b";
+                updatedSummary = Regex.Replace(updatedSummary, pattern, newName, RegexOptions.IgnoreCase);
+            }
+            rec.Summary = updatedSummary;
+        }
+
+        rec.UpdatedDate = DateTime.UtcNow;
+        _uow.Repository<Recording>().Update(rec);
+        await _uow.SaveChangesAsync(ct);
+
         return _mapper.Map<RecordingResponse>(rec);
     }
 

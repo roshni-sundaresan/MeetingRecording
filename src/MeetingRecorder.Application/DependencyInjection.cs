@@ -22,6 +22,7 @@ public static class DependencyInjection
         services.AddScoped<IValidator<DTOs.CreateRecordingRequest>, CreateRecordingValidator>();
         services.AddScoped<IValidator<DTOs.UpdateRecordingRequest>, UpdateRecordingValidator>();
         services.AddScoped<IValidator<DTOs.BatchRecordingsRequest>, BatchRecordingsValidator>();
+        services.AddScoped<IValidator<DTOs.RenameSpeakersRequest>, RenameSpeakersValidator>();
         services.AddScoped<IValidator<DTOs.StartUploadRequest>, StartUploadValidator>();
         services.AddScoped<IValidator<DTOs.UploadChunkRequest>, UploadChunkValidator>();
         services.AddScoped<IValidator<Guid>, CompleteUploadValidator>();
