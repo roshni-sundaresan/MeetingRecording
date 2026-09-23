@@ -456,10 +456,19 @@ public class SarvamApiService : ISarvamApiService
         return result.IsValid;
     }
 
-    public async Task<ApiKeyValidationResult> ValidateApiKeyWithDetailsAsync(string apiKey, CancellationToken ct = default)
+    public async Task<ApiKeyValidationResult> ValidateApiKeyWithDetailsAsync(string? apiKey = null, CancellationToken ct = default)
     {
-        var cleanKey = apiKey?.Trim();
-        if (string.IsNullOrWhiteSpace(cleanKey) || cleanKey.Length < 10)
+        var cleanKey = string.IsNullOrWhiteSpace(apiKey) ? _options.ApiKey?.Trim() : apiKey.Trim();
+        if (string.IsNullOrWhiteSpace(cleanKey))
+        {
+            return new ApiKeyValidationResult(
+                IsValid: false,
+                Message: "Sarvam API key is not configured.",
+                ErrorCode: "KEY_NOT_CONFIGURED",
+                StatusCode: 400);
+        }
+
+        if (cleanKey.Length < 10)
         {
             return new ApiKeyValidationResult(
                 IsValid: false,

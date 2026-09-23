@@ -304,7 +304,10 @@ public record UserApiKeyStatusResponse(
     bool IsSystemKeyConfigured,
     DateTime? UpdatedDate = null,
     string? ApiKey = null,
-    string? Email = null);
+    string? Email = null,
+    string Status = "Active",
+    bool HasCredits = true,
+    string? Message = "Sarvam AI is ready and active.");
 
 public record ValidateApiKeyRequest
 {

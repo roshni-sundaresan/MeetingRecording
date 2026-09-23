@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using AutoMapper;
 using MeetingRecorder.Application.DTOs;
 using MeetingRecorder.Application.DTOs.Common;
@@ -212,7 +213,7 @@ public class UserService : IUserService
                 };
                 userRepo.Add(user);
                 await _uow.SaveChangesAsync(ct);
-                return BuildApiKeyStatus(user);
+                return await BuildApiKeyStatusAsync(user, ct);
             }
         }
         // 2. Otherwise fall back to authenticated userId
@@ -232,7 +233,12 @@ public class UserService : IUserService
         userRepo.Update(user);
         await _uow.SaveChangesAsync(ct);
 
-        return BuildApiKeyStatus(user);
+        if (!string.IsNullOrWhiteSpace(key))
+        {
+            ValidationCache.TryRemove(key.Trim(), out _);
+        }
+
+        return await BuildApiKeyStatusAsync(user, ct);
     }
 
     public async Task<UserApiKeyStatusResponse> GetApiKeyStatusAsync(Guid? userId, string? email = null, CancellationToken ct = default)
@@ -254,6 +260,7 @@ public class UserService : IUserService
         {
             if (!string.IsNullOrWhiteSpace(email))
             {
+                var (status, hasCredits, message) = await CheckCreditStatusAsync(null, ct);
                 return new UserApiKeyStatusResponse(
                     HasCustomKey: false,
                     MaskedKey: null,
@@ -261,13 +268,16 @@ public class UserService : IUserService
                     IsSystemKeyConfigured: true,
                     UpdatedDate: null,
                     ApiKey: null,
-                    Email: email.Trim());
+                    Email: email.Trim(),
+                    Status: status,
+                    HasCredits: hasCredits,
+                    Message: message);
             }
 
             throw new NotFoundException(nameof(User), userId ?? Guid.Empty);
         }
 
-        return BuildApiKeyStatus(user);
+        return await BuildApiKeyStatusAsync(user, ct);
     }
 
     public async Task<UserApiKeyStatusResponse> ResetApiKeyAsync(Guid? userId, string? email = null, CancellationToken ct = default)
@@ -288,20 +298,31 @@ public class UserService : IUserService
         if (user == null)
             throw new NotFoundException(nameof(User), userId ?? Guid.Empty);
 
+        var oldKey = user.CustomApiKey;
         user.CustomApiKey = null;
         user.UpdatedDate = DateTime.UtcNow;
 
         userRepo.Update(user);
         await _uow.SaveChangesAsync(ct);
 
-        return BuildApiKeyStatus(user);
+        if (!string.IsNullOrWhiteSpace(oldKey))
+        {
+            ValidationCache.TryRemove(oldKey.Trim(), out _);
+        }
+
+        return await BuildApiKeyStatusAsync(user, ct);
     }
 
-    private static UserApiKeyStatusResponse BuildApiKeyStatus(User user)
+    private static readonly ConcurrentDictionary<string, (ApiKeyValidationResult Result, DateTime CachedAt)> ValidationCache = new();
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(2);
+
+    private async Task<UserApiKeyStatusResponse> BuildApiKeyStatusAsync(User user, CancellationToken ct = default)
     {
         var hasCustomKey = !string.IsNullOrWhiteSpace(user.CustomApiKey);
         var maskedKey = hasCustomKey ? MaskApiKey(user.CustomApiKey) : null;
         var keySource = hasCustomKey ? "custom" : "system";
+
+        var (status, hasCredits, message) = await CheckCreditStatusAsync(user.CustomApiKey, ct);
 
         return new UserApiKeyStatusResponse(
             HasCustomKey: hasCustomKey,
@@ -310,7 +331,64 @@ public class UserService : IUserService
             IsSystemKeyConfigured: true,
             UpdatedDate: user.UpdatedDate,
             ApiKey: maskedKey,
-            Email: user.Email);
+            Email: user.Email,
+            Status: status,
+            HasCredits: hasCredits,
+            Message: message);
+    }
+
+    private async Task<(string Status, bool HasCredits, string Message)> CheckCreditStatusAsync(string? customApiKey, CancellationToken ct)
+    {
+        if (_sarvamApiService == null)
+        {
+            return ("Active", true, "Sarvam AI is ready and active.");
+        }
+
+        var cacheKey = string.IsNullOrWhiteSpace(customApiKey) ? "__system__" : customApiKey.Trim();
+
+        if (ValidationCache.TryGetValue(cacheKey, out var cached) && DateTime.UtcNow - cached.CachedAt < CacheTtl)
+        {
+            return MapValidationResult(cached.Result);
+        }
+
+        try
+        {
+            var result = await _sarvamApiService.ValidateApiKeyWithDetailsAsync(customApiKey, ct);
+            ValidationCache[cacheKey] = (result, DateTime.UtcNow);
+            return MapValidationResult(result);
+        }
+        catch
+        {
+            return ("Unknown", false, "Unable to verify Sarvam credit status at this time.");
+        }
+    }
+
+    private static (string Status, bool HasCredits, string Message) MapValidationResult(ApiKeyValidationResult result)
+    {
+        if (result.IsValid)
+        {
+            return ("Active", true, "Sarvam AI is ready and active.");
+        }
+
+        if (string.Equals(result.ErrorCode, "KEY_NOT_CONFIGURED", StringComparison.OrdinalIgnoreCase))
+        {
+            return ("NotConfigured", false, "Sarvam API key is not configured.");
+        }
+
+        if (result.StatusCode == 402 ||
+            string.Equals(result.ErrorCode, "INSUFFICIENT_QUOTA", StringComparison.OrdinalIgnoreCase) ||
+            (result.Message != null && result.Message.Contains("credits", StringComparison.OrdinalIgnoreCase)))
+        {
+            return ("Exhausted", false, "Sarvam credits are exhausted. Please recharge on your Sarvam dashboard.");
+        }
+
+        if (result.StatusCode == 401 || result.StatusCode == 403 ||
+            string.Equals(result.ErrorCode, "INVALID_API_KEY", StringComparison.OrdinalIgnoreCase))
+        {
+            return ("Invalid", false, "Sarvam API key is invalid or unauthorized.");
+        }
+
+        return ("Invalid", false, result.Message ?? "Sarvam API key validation failed.");
     }
 
     private static string? MaskApiKey(string? key)

@@ -269,4 +269,64 @@ public class UserServiceTests
         _repo.Verify(r => r.Update(alice), Times.Once);
         _uow.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Fact]
+    public async Task GetApiKeyStatus_WhenSarvamHasSufficientCredits_ReturnsActiveAndHasCreditsTrue()
+    {
+        var alice = NewUser("Alice", "alice@test.com", "1111111111");
+        alice.CustomApiKey = "sk_live_valid_key_1234";
+        _repo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(alice);
+
+        var mockSarvam = new Mock<ISarvamApiService>();
+        mockSarvam.Setup(s => s.ValidateApiKeyWithDetailsAsync("sk_live_valid_key_1234", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ApiKeyValidationResult(true, "API key is valid.", StatusCode: 200));
+
+        var sut = new UserService(_uow.Object, _mapper, _hasher.Object, mockSarvam.Object);
+        var result = await sut.GetApiKeyStatusAsync(alice.Id);
+
+        result.Status.Should().Be("Active");
+        result.HasCredits.Should().BeTrue();
+        result.Message.Should().Be("Sarvam AI is ready and active.");
+    }
+
+    [Fact]
+    public async Task GetApiKeyStatus_WhenSarvamHasInsufficientCredits_ReturnsExhaustedAndHasCreditsFalse()
+    {
+        var alice = NewUser("Alice", "alice@test.com", "1111111111");
+        alice.CustomApiKey = "sk_live_exhausted_key_1234";
+        _repo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(alice);
+
+        var mockSarvam = new Mock<ISarvamApiService>();
+        mockSarvam.Setup(s => s.ValidateApiKeyWithDetailsAsync("sk_live_exhausted_key_1234", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ApiKeyValidationResult(false, "Insufficient credits", "INSUFFICIENT_QUOTA", 402));
+
+        var sut = new UserService(_uow.Object, _mapper, _hasher.Object, mockSarvam.Object);
+        var result = await sut.GetApiKeyStatusAsync(alice.Id);
+
+        result.Status.Should().Be("Exhausted");
+        result.HasCredits.Should().BeFalse();
+        result.Message.Should().Contain("credits are exhausted");
+    }
+
+    [Fact]
+    public async Task GetApiKeyStatus_WhenSarvamKeyIsInvalid_ReturnsInvalidAndHasCreditsFalse()
+    {
+        var alice = NewUser("Alice", "alice@test.com", "1111111111");
+        alice.CustomApiKey = "sk_live_invalid_key_1234";
+        _repo.Setup(r => r.FirstOrDefaultAsync(It.IsAny<System.Linq.Expressions.Expression<Func<User, bool>>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(alice);
+
+        var mockSarvam = new Mock<ISarvamApiService>();
+        mockSarvam.Setup(s => s.ValidateApiKeyWithDetailsAsync("sk_live_invalid_key_1234", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ApiKeyValidationResult(false, "Invalid key", "INVALID_API_KEY", 401));
+
+        var sut = new UserService(_uow.Object, _mapper, _hasher.Object, mockSarvam.Object);
+        var result = await sut.GetApiKeyStatusAsync(alice.Id);
+
+        result.Status.Should().Be("Invalid");
+        result.HasCredits.Should().BeFalse();
+        result.Message.Should().Contain("invalid or unauthorized");
+    }
 }
