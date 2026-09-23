@@ -301,9 +301,17 @@ public class RecordingService : IRecordingService
             {
                 var updatedLines = lines.Select(line =>
                 {
-                    if (!string.IsNullOrWhiteSpace(line.Speaker) && mappings.TryGetValue(line.Speaker.Trim(), out var newSpeaker))
+                    if (!string.IsNullOrWhiteSpace(line.Speaker))
                     {
-                        return line with { Speaker = newSpeaker };
+                        var trimmedSpeaker = line.Speaker.Trim();
+                        foreach (var (oldName, newName) in mappings)
+                        {
+                            if (string.Equals(trimmedSpeaker, oldName, StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(trimmedSpeaker.Replace(" ", ""), oldName.Replace(" ", ""), StringComparison.OrdinalIgnoreCase))
+                            {
+                                return line with { Speaker = newName };
+                            }
+                        }
                     }
                     return line;
                 }).ToList();
@@ -312,7 +320,7 @@ public class RecordingService : IRecordingService
             }
         }
 
-        // 2. Update Summary if present
+        // 2. Update Summary (MOM) if present
         if (!string.IsNullOrWhiteSpace(rec.Summary))
         {
             var updatedSummary = rec.Summary;
@@ -320,8 +328,45 @@ public class RecordingService : IRecordingService
             {
                 var pattern = $@"\b{Regex.Escape(oldName)}\b";
                 updatedSummary = Regex.Replace(updatedSummary, pattern, newName, RegexOptions.IgnoreCase);
+
+                if (oldName.Contains(' '))
+                {
+                    var noSpace = oldName.Replace(" ", "");
+                    var patternNoSpace = $@"\b{Regex.Escape(noSpace)}\b";
+                    updatedSummary = Regex.Replace(updatedSummary, patternNoSpace, newName, RegexOptions.IgnoreCase);
+                }
+                else if (Regex.IsMatch(oldName, @"^([A-Za-z]+)(\d+)$"))
+                {
+                    var withSpace = Regex.Replace(oldName, @"^([A-Za-z]+)(\d+)$", "$1 $2");
+                    var patternWithSpace = $@"\b{Regex.Escape(withSpace)}\b";
+                    updatedSummary = Regex.Replace(updatedSummary, patternWithSpace, newName, RegexOptions.IgnoreCase);
+                }
             }
             rec.Summary = updatedSummary;
+        }
+
+        // 3. Update Actions if present
+        if (!string.IsNullOrWhiteSpace(rec.Actions))
+        {
+            var updatedActions = rec.Actions;
+            foreach (var (oldName, newName) in mappings)
+            {
+                var pattern = $@"\b{Regex.Escape(oldName)}\b";
+                updatedActions = Regex.Replace(updatedActions, pattern, newName, RegexOptions.IgnoreCase);
+            }
+            rec.Actions = updatedActions;
+        }
+
+        // 4. Update Notes if present
+        if (!string.IsNullOrWhiteSpace(rec.Notes))
+        {
+            var updatedNotes = rec.Notes;
+            foreach (var (oldName, newName) in mappings)
+            {
+                var pattern = $@"\b{Regex.Escape(oldName)}\b";
+                updatedNotes = Regex.Replace(updatedNotes, pattern, newName, RegexOptions.IgnoreCase);
+            }
+            rec.Notes = updatedNotes;
         }
 
         rec.UpdatedDate = DateTime.UtcNow;

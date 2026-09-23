@@ -236,7 +236,7 @@ public class EncryptedRequestMiddlewareTests
             var getJson = await getResp.Content.ReadAsStringAsync();
             using var getDoc = JsonDocument.Parse(getJson);
             var data = getDoc.RootElement.GetProperty("data");
-            Assert.Equal("sarvam_live_enc_9999", data.GetProperty("masked_key").GetString());
+            Assert.Equal("sarv************9999", data.GetProperty("masked_key").GetString());
             Assert.Equal("encrypted_live_test@idealake.com", data.GetProperty("email").GetString());
         }
         catch (HttpRequestException)
